@@ -1,0 +1,13 @@
+ The Infinite-Metric Gaussian Process Optimization (IMGPO) algorithm
+    
+ This MATLAB code implements IMGPO 
+            presented in Bayesian Optimization With Exponential Convergence
+
+---
+
+Downloaded from:
+http://lis.csail.mit.edu/code/imgpo.html
+
+Paper can be found here:
+https://arxiv.org/pdf/1604.01348v1.pdf
+
