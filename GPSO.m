@@ -51,7 +51,7 @@ classdef GPSO < handle
         function self=set_GP( self, hyp, likfunc, meanfunc, covfunc, update, eta )
             
             if nargin < 7, eta=0.05; end
-            if nargin < 6, update=[1,2,3,4,5,floor(logspace(1,5))]; end
+            if nargin < 6, update=[1:6,8,floor(logspace(1,5))]; end
             
             self.GP_use = true;
             self.GP.hyp = hyp;
@@ -108,6 +108,10 @@ classdef GPSO < handle
                 self.LB = max(self.samp.f);
                 self.inc_iter();
                 
+                self.info('\n\t------------------------------');
+                self.info('\tIteration #%d (depth: %d, nsample: %d, score: %g, time: %g sec)', ...
+                    self.Niter, self.Tdepth, self.Nsamp, self.LB, toc(self.tstart) );
+                
                 [i_max,g_max] = self.step_1(objfun);
                 if self.GP_use
                     i_max = self.step_2(i_max,g_max,XI);
@@ -129,6 +133,7 @@ classdef GPSO < handle
                     
                     % careful with next update: we might have skipped several ones in last iteration
                     next = find( self.GP.update > self.Nsplit, 1, 'first' ); 
+                    self.info('\tHyperparameter update (Nsplit=%d, next=%d).',self.Nsplit,next);
                     
                     [xsample,fsample] = self.gp_data();
                     self.GP.hyp = minimize( self.GP.hyp, @gp, -100, ...
@@ -183,6 +188,11 @@ classdef GPSO < handle
         function n=inc_ucb(self)
             n = self.Nucb;
             n = n+1;
+            self.Nucb = n;
+        end
+        function n=dec_ucb(self)
+            n = self.Nucb;
+            n = max(0,n-1);
             self.Nucb = n;
         end
         
@@ -271,13 +281,13 @@ classdef GPSO < handle
         
         function initialise(self,objfun,domain,neval)
             
-            assert( size(domain,2)==2, 'domain should be Nx2.' );
+            assert( size(domain,2)==2, 'Domain should be Nx2.' );
             assert( size(domain,1)>0, 'Number of dimensions should be positive.' );
             assert( neval > 0, 'Max number of evaluations should be >0.' );
             
             h_pre = max( 100, sqrt(neval) ); % used for preallocation, but non-limitting (see footnote p.7)
             ndim  = size(domain,1);
-            self.info( 'Starting %d-dimensional optimisation, with roughly %d maximum evaluations...', ndim, neval );
+            self.info( 'Starting %d-dimensional optimisation, with a budget of %d evaluations...', ndim, neval );
             
             % dimensions & counters
             self.Nsamp   = 0; % #of times the objective has been evaluated
@@ -308,7 +318,7 @@ classdef GPSO < handle
             x_init  = (x_upper + x_lower)/2;
             f_init  = objfun(x_init);
 
-            assert( all(x_delta > eps), 'domain is too narrow.' );
+            assert( all(x_delta > eps), 'Domain is too narrow.' );
             
             self.samp.lower = x_lower;
             self.samp.upper = x_upper;
@@ -345,22 +355,8 @@ classdef GPSO < handle
             self.samp.f = self.samp.f(1:ns);
             
             % find maximum point
-            f_max = -inf;
-            for h = 1:td
-                nx = self.tree_nx(h);
-                for i = 1:nx
-                    f_hi  = self.tree(h).f(i);
-                    notgp = self.tree(h).samp(i); % JH
-                    if (f_hi > f_max) && (notgp == 1)
-                        f_max = f_hi;
-                        h_max = h;
-                        i_max = i;
-                    end
-                end 
-            end
-            
-            x = self.tree(h_max).x(i_max,:);
-            f = f_max;
+            [f,k] = max(self.samp.f);
+            x = self.samp.x(k,:);
             
             % denormalise parameters
             self.samp.x = self.denormalise(self.samp.x);
@@ -373,10 +369,15 @@ classdef GPSO < handle
             out.samp.x = self.samp.x;
             out.samp.f = self.samp.f;
             
+            % information
+            self.info('Best score out of %d samples: %g', self.Nsamp, out.sol.f);
+            self.info('Total runtime: %s',dk.time.sec2str(toc( self.tstart )));
+            
         end
         
         function [i_max,g_max] = step_1(self,objfun)
             
+            self.info('\tStep 1:');
             i_max = zeros(self.Tdepth,1);
             g_max = -inf(self.Tdepth,1);
             
@@ -412,7 +413,10 @@ classdef GPSO < handle
                     else
                         xsample = self.tree(h).x(imax,:);
                         fsample = objfun(self.denormalise(xsample));
+                        
+                        self.info('\t\t[h=%02d] Sampling GP-based leaf %d with score %g',h,imax,v_max);
                         self.save_sample( xsample, fsample );
+                        self.dec_ucb(); % JH: algorithm line 17
                         self.tree(h).samp(imax) = 1;
                         
                         % JH:
@@ -421,6 +425,11 @@ classdef GPSO < handle
                     end
                     
                 end % while
+                if imax
+                    self.info('\t\t[h=%02d] Select leaf %d with score %g',h,imax,v_max);
+                else
+                    self.info('\t\t[h=%02d] No leaf selected',h);
+                end
                 
             end % for
             
@@ -428,6 +437,7 @@ classdef GPSO < handle
         
         function i_max = step_2(self,i_max,g_max,XI)
             
+            self.info('\tStep 2:');
             for h = 1:self.Tdepth    
             if i_max(h) > 0
                 
@@ -478,8 +488,11 @@ classdef GPSO < handle
                 if z_max < g_max(h+ki)
                     self.Nucb = M; % if we actually used M UCBs, we update Nucb = M;
                     i_max(h)  = 0; % if it turns out that some UCB exceeded g_max(h+ki), then it does not matter 
-                                   % whether or not f <= UCB. It may be UCB<f, and still it works exactly same. 
+                                   % whether or not f <= UCB. It may be UCB < f, and still it works exactly same. 
                                    % So, we do not have to update Nucb in this case.
+                    self.info('\t\t[h=%02d,ki=%d] Drop selection (expected=%g < known=%g)',h,ki,z_max,g_max(h+ki));
+                else
+                    self.info('\t\t[h=%02d,ki=%d] Maintain selection with expected score %g',h,ki,z_max);
                 end
                 
             end % if
@@ -498,8 +511,16 @@ classdef GPSO < handle
             v_max = -inf;
             rho = 0;
             
+            self.info('\tStep 3:');
             for h = 1:self.Tdepth
-            if (i_max(h) > 0) && (g_max(h) >= v_max) % JH: >= instead of >
+            if i_max(h) > 0
+                
+                if g_max(h) < v_max % JH: >= instead of >
+                    self.info('\t\t[h=%02d] Drop selection (known=%g < upstream=%g)',h,g_max(h),v_max);
+                    continue;
+                else
+                    %v_max = g_max(h); % JH: should we do that?
+                end
                 
                 rho = rho+1;
                 self.Tdepth = max( self.Tdepth, h+1 );
@@ -528,6 +549,8 @@ classdef GPSO < handle
                 self.tree(h+1).samp = [self.tree(h+1).samp, gs,ds,xs];
                 self.tree(h+1).leaf = [self.tree(h+1).leaf,  1, 1, 1];
                 
+                self.info('\t\t[h=%02d] Split dim %d, %d/3 sampled, old=%g, new=%g',h,s,gs+ds+xs,g_max(h),v_max);
+                
             end % if
             end % for
             
@@ -538,13 +561,16 @@ classdef GPSO < handle
             % UCB at point x (force sampling if not using GP)
             if self.GP_use
                 [m,s2] = self.gp_call(x);
-                UCB = m + (self.GP.varsigma(self.Nucb)+0.2)*sqrt(s2); % JH: UCB boosting??
+                %UCB = m + (self.GP.varsigma(self.Nucb)+0.2)*sqrt(s2); JH: UCB boosting??
+                UCB = m + self.GP.varsigma(self.Nucb)*sqrt(s2); 
             else
                 UCB = +inf;
             end 
             
             % Sample only if UCB exceeds overall best known score
-            if self.GP_use && UCB <= self.LB
+            if UCB <= self.LB
+                % Need to update Nucb only if we require f <= UCB. 
+                % The other case f > UCB does not require to take union bound.
                 self.inc_ucb();
                 f = UCB;
                 s = 0;
@@ -578,11 +604,10 @@ end
 % Lvl      \                         /
 % k:        =-----------x-----------=
 % 
-%                  Gmax
-%                   |
+%
 % k+1:      =---g---=---x---=---d---=
-%          /                |         \
-%         Tmin             Dmin       Tmax
+%          /        |       |        \
+%        Tmin     Gmax     Dmin      Tmax
 %
 
 function [x,g,d,s] = split_largest_dimension(T,k)
