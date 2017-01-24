@@ -70,8 +70,8 @@ classdef GPSO < handle
         % default options
         function self=set_defaults( self, norm, sigma )
             
-            if nargin < 2, norm = 10; end
-            if nargin < 3, sigma = 0.1; end
+            if nargin < 2, norm = 1; end
+            if nargin < 3, sigma = 1e-4; end
             
             likfunc  = @likGauss;  % Gaussian likelihood
             meanfunc = @meanConst; %  Constant mean 
@@ -90,38 +90,39 @@ classdef GPSO < handle
         
         % run optimisation
         function out = run( self, objfun, domain, neval, verb )
-            
+
+            if nargin < 5, verb=true; end
             self.verb = verb;
             
             % initialisation
-            self.initialise( objfun, domain, neval );
+            self.LB = self.initialise( objfun, domain, neval );
             self.notify( 'PostInitialise' );
             
             % iterate
             next = 1;
-            rho_avg = 0;
+            rho = [];
             XI = 1;
             
             while self.Nsamp < self.Neval
                 
+                % update lower bound
                 LB_old = self.LB;
-                self.LB = max(self.samp.f);
                 self.inc_iter();
                 
+                % print information
                 self.info('\n\t------------------------------');
                 self.info('\tIteration #%d (depth: %d, nsample: %d, score: %g, time: %g sec)', ...
                     self.Niter, self.Tdepth, self.Nsamp, self.LB, toc(self.tstart) );
                 
+                % run steps
                 [i_max,g_max] = self.step_1(objfun);
                 if self.GP_use
                     i_max = self.step_2(i_max,g_max,XI);
                 end
-                
-                rho_cur = self.step_3(objfun,i_max,g_max);
-                rho_avg = (rho_avg * (self.Niter - 1) + rho_cur) / self.Niter; % update average
-                self.rho_max = max( self.rho_max, rho_avg );
+                rho(self.Niter) = self.step_3(objfun,i_max,g_max); %#ok
                 
                 % update XI
+                self.LB = self.max_samp();
                 if LB_old == self.LB
                     XI = max( 1, XI-2^-1 );
                 else
@@ -129,28 +130,8 @@ classdef GPSO < handle
                 end
                 
                 % update GP hyper parameters
-                if self.GP_use && ( self.Nsplit >= self.GP.update(next) )
-                    
-                    % careful with next update: we might have skipped several ones in last iteration
-                    next = find( self.GP.update > self.Nsplit, 1, 'first' ); 
-                    self.info('\tHyperparameter update (Nsplit=%d, next=%d).',self.Nsplit,next);
-                    
-                    [xsample,fsample] = self.gp_data();
-                    self.GP.hyp = minimize( self.GP.hyp, @gp, -100, ...
-                        @infExact, self.GP.meanfunc, self.GP.covfunc, self.GP.likfunc, xsample, fsample );
-                    
-                    % JH: don't allow sigma to become too small
-                    self.GP.hyp.lik = max( self.GP.hyp.lik, -15 );
-                    
-                    if isempty(next)
-                        warning(sprintf([ ...
-                            'Number of splits exceeded largest update timing for GP hyperparameters.\n' ...
-                            'This means the GP hyperparameters will not be updated from now on (Nsplits=%d).\n' ...
-                            'Consider adding larger update timings in future runs (see set_defaults and set_GP).' ...
-                        ],self.Nsplit)); %#ok
-                    end
-                    self.notify( 'PostUpdate' );
-                    
+                if self.GP_use 
+                    next = self.gp_update(next);
                 end
                 self.notify( 'PostIteration' );
                 
@@ -161,6 +142,50 @@ classdef GPSO < handle
             
         end
         
+        % normalise/denormalise candidate samples
+        function y = normalise(self,x)
+            y = bsxfun( @minus, x, self.samp.lower );
+            y = bsxfun( @rdivide, y, self.samp.delta );
+        end
+        function y = denormalise(self,x)
+            y = bsxfun( @times, x, self.samp.delta );
+            y = bsxfun( @plus, y, self.samp.lower );
+        end
+        
+        % maximum score obtained across all samples
+        function f = max_samp(self)
+            n = self.Nsamp;
+            f = max(self.samp.f(1:n));
+        end
+        
+        % call the GPML library for prediction at input coordinates x
+        function [mu,sigma] = gp_call( self, x )
+            
+            hyp = self.GP.hyp;
+            err = true;
+            
+            x = self.gp_prep(x);
+            [xsample,fsample] = self.gp_data();
+            
+            while err
+                err = false;
+                try
+                    [mu,sigma] = gp( hyp, @infExact, ...
+                        self.GP.meanfunc, self.GP.covfunc, self.GP.likfunc, ...
+                        xsample, fsample, x ...
+                    );
+                catch
+                    err = true;
+                    if hyp.lik == -inf, hyp.lik = -9; end
+                    hyp.lik = hyp.lik + 1;
+                end
+            end
+            %self.GP.hyp = hyp; % JH: commit?
+            
+            % gp returns the variance, not the std
+            sigma = sqrt(sigma);
+            
+        end
         
     end
     
@@ -219,22 +244,6 @@ classdef GPSO < handle
             
         end
         
-        % normalise/denormalise candidate samples
-        function y = normalise(self,x)
-            y = bsxfun( @minus, x, self.samp.lower );
-            y = bsxfun( @rdivide, y, self.samp.delta );
-        end
-        function y = denormalise(self,x)
-            y = bsxfun( @times, x, self.samp.delta );
-            y = bsxfun( @plus, y, self.samp.lower );
-        end
-        
-        % maximum score obtained across all samples
-        function f = max_samp(self)
-            n = self.Nsamp;
-            f = max(self.samp.f(1:n));
-        end
-        
         % get GP-friendly samples
         function x = gp_prep(self,x)
             if self.GP_norm > 0
@@ -249,29 +258,32 @@ classdef GPSO < handle
             f = self.samp.f(1:n);
         end
         
-        % call the GPML library for prediction at input coordinates x
-        function [m,s2] = gp_call( self, x )
+        % update GP hyperparameters
+        function next = gp_update(self,next)
             
-            hyp = self.GP.hyp;
-            err = true;
-            
-            x = self.gp_prep(x);
-            [xsample,fsample] = self.gp_data();
-            
-            while err
-                err = false;
-                try
-                    [m,s2] = gp( hyp, @infExact, ...
-                        self.GP.meanfunc, self.GP.covfunc, self.GP.likfunc, ...
-                        xsample, fsample, x ...
-                    );
-                catch
-                    err = true;
-                    if hyp.lik == -inf, hyp.lik = -9; end
-                    hyp.lik = hyp.lik + 1;
+            if self.Nsplit >= self.GP.update(next)
+                    
+                % careful with next update: we might have skipped several ones in last iteration
+                next = find( self.GP.update > self.Nsplit, 1, 'first' ); 
+                self.info('\tHyperparameter update (Nsplit=%d, next=%d).',self.Nsplit,self.GP.update(next));
+
+                [xsample,fsample] = self.gp_data();
+                self.GP.hyp = minimize( self.GP.hyp, @gp, -100, ...
+                    @infExact, self.GP.meanfunc, self.GP.covfunc, self.GP.likfunc, xsample, fsample );
+
+                % JH: don't allow sigma to become too small
+                self.GP.hyp.lik = max( self.GP.hyp.lik, -15 );
+
+                if isempty(next)
+                    warning(sprintf([ ...
+                        'Number of splits exceeded largest update timing for GP hyperparameters.\n' ...
+                        'This means the GP hyperparameters will not be updated from now on (Nsplits=%d).\n' ...
+                        'Consider adding larger update timings in future runs (see set_defaults and set_GP).' ...
+                    ],self.Nsplit)); %#ok
                 end
+                self.notify( 'PostUpdate' );
+
             end
-            self.GP.hyp = hyp; % JH: commit?
             
         end
         
@@ -279,7 +291,7 @@ classdef GPSO < handle
     
     methods (Hidden,Access=private)
         
-        function initialise(self,objfun,domain,neval)
+        function f_init = initialise(self,objfun,domain,neval)
             
             assert( size(domain,2)==2, 'Domain should be Nx2.' );
             assert( size(domain,1)>0, 'Number of dimensions should be positive.' );
@@ -288,6 +300,10 @@ classdef GPSO < handle
             h_pre = max( 100, sqrt(neval) ); % used for preallocation, but non-limitting (see footnote p.7)
             ndim  = size(domain,1);
             self.info( 'Starting %d-dimensional optimisation, with a budget of %d evaluations...', ndim, neval );
+            
+            if isempty(which('gp'))
+                gpml_start();
+            end
             
             % dimensions & counters
             self.Nsamp   = 0; % #of times the objective has been evaluated
@@ -299,7 +315,6 @@ classdef GPSO < handle
             self.LB      = -inf;
             self.Tdepth  = 1;
             self.tstart  = tic;
-            self.rho_max = 0;
             
             % XI_max
             switch floor(ndim/10)
@@ -372,6 +387,7 @@ classdef GPSO < handle
             % information
             self.info('Best score out of %d samples: %g', self.Nsamp, out.sol.f);
             self.info('Total runtime: %s',dk.time.sec2str(toc( self.tstart )));
+            gpml_stop();
             
         end
         
@@ -470,8 +486,8 @@ classdef GPSO < handle
                     for i2 = 1:3^(h2-1)
 
                         [x,g,d,s] = split_largest_dimension( T(h2), i2 );
-                        [z_max,M] = self.subroutine_z_max( g, M, z_max );
-                        [z_max,M] = self.subroutine_z_max( d, M, z_max );
+                        [z_max,M] = self.subroutine_z_max( g, z_max, M );
+                        [z_max,M] = self.subroutine_z_max( d, z_max, M );
 
                         if z_max >= g_max(h+ki), break; end
 
@@ -500,9 +516,9 @@ classdef GPSO < handle
             
         end
         
-        function [z_max,M] = subroutine_z_max(self,x,M,z_max)
-            [m,s2] = self.gp_call(x);
-            z_max  = max( z_max, m + self.GP.varsigma(M)*sqrt(s2) );
+        function [z_max,M] = subroutine_z_max(self,x,z_max,M)
+            [mu,sigma] = self.gp_call(x);
+            z_max = max( z_max, mu + self.GP.varsigma(M)*sigma );
             M = M+1;
         end
         
@@ -524,11 +540,11 @@ classdef GPSO < handle
                 
                 rho = rho+1;
                 self.Tdepth = max( self.Tdepth, h+1 );
-                self.inc_split();
                 
                 % Split the leaf along largest dimension
                 self.tree(h).leaf(i_max(h)) = 0;
                 [x,g,d,s] = split_largest_dimension( self.tree(h), i_max(h) );
+                self.inc_split();
                 
                 % Compute extents of new intervals
                 U  = split_tree( self.tree(h), i_max(h), x, g, d, s );
@@ -560,9 +576,9 @@ classdef GPSO < handle
             
             % UCB at point x (force sampling if not using GP)
             if self.GP_use
-                [m,s2] = self.gp_call(x);
-                %UCB = m + (self.GP.varsigma(self.Nucb)+0.2)*sqrt(s2); JH: UCB boosting??
-                UCB = m + self.GP.varsigma(self.Nucb)*sqrt(s2); 
+                [mu,sigma] = self.gp_call(x);
+                %UCB = m + (self.GP.varsigma(self.Nucb)+0.2)*sigma; JH: UCB boosting??
+                UCB = mu + self.GP.varsigma(self.Nucb)*sigma; 
             else
                 UCB = +inf;
             end 

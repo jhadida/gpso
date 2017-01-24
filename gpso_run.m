@@ -1,4 +1,4 @@
-function [out,tree] = gpso_run( objfun, domain, niter, verb )
+function out = gpso_run( objfun, domain, niter, verb )
 %
 % out = gpso_run( objfun, domain, niter, verb=true )
 %
@@ -33,13 +33,13 @@ function [out,tree] = gpso_run( objfun, domain, niter, verb )
     if nargin < 6, verb=true; end
     assert( size(domain,2)==2, 'Domain should be Nd x 2.' );
     
-    gpml_start;
     if USE_NEW
-        obj = GPSO().set_defaults(10,0.1);
+        obj = GPSO().set_defaults(); 
         out = obj.run( objfun, domain, niter, verb );
-        tree = obj.tree;
     else
-        [x,fx,Xsamp,Fsamp,tree] = imgpo_default( objfun, domain, niter, verb );
+        gpml_start;
+        [x,fx,Xsamp,Fsamp] = imgpo_default( objfun, domain, niter, verb );
+        gpml_stop;
         
         out.sol.x = x;
         out.sol.fx = fx;
@@ -47,6 +47,5 @@ function [out,tree] = gpso_run( objfun, domain, niter, verb )
         out.samp.x = Xsamp;
         out.samp.fx = Fsamp;
     end
-    gpml_stop;
 
 end
