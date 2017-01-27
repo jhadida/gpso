@@ -10,18 +10,18 @@ classdef GPSO < handle
     end
     
     properties (Hidden,Transient,SetAccess=private)
-        Nsamp
-        Niter
-        Nsplit
-        Neval
-        Ndim
-        Nucb
-        LB
-        Tdepth
-        tstart
-        rho_max
-        XI_max
-        verb
+        Nsamp   % #of objective evaluations
+        Niter   % #of iterations
+        Nsplit  % #of leaves split
+        Nmax    % maximum #of objective evaluations
+        Ndim    % #of dimensions
+        Nucb    % #of times UCB was used instead of sample
+        LB      % best score so far
+        depth   % depth of the tree
+        XI_max  % maximum GP expansion depth
+        tstart  % initialisation time
+        verb    % verbose switch
+        dev     % development options
     end
     
     events
@@ -44,6 +44,11 @@ classdef GPSO < handle
             self.GP      = struct();
             self.GP_use  = false;
             self.GP_norm = 1;
+            
+            self.dev.gmax = false;
+            self.dev.ucb  = false;
+            self.dev.gpu  = false;
+            self.dev.lb   = false;
             
         end
         
@@ -68,10 +73,10 @@ classdef GPSO < handle
         end
         
         % default options
-        function self=set_defaults( self, norm, sigma )
+        function self=set_defaults( self, sigma, norm )
             
-            if nargin < 2, norm = 1; end
-            if nargin < 3, sigma = 1e-4; end
+            if nargin < 2, sigma = 1e-4; end
+            if nargin < 3, norm = 1; end
             
             likfunc  = @likGauss;  % Gaussian likelihood
             meanfunc = @meanConst; %  Constant mean 
@@ -103,7 +108,7 @@ classdef GPSO < handle
             rho = [];
             XI = 1;
             
-            while self.Nsamp < self.Neval
+            while self.Nsamp < self.Nmax
                 
                 % update lower bound
                 LB_old = self.LB;
@@ -112,7 +117,7 @@ classdef GPSO < handle
                 % print information
                 self.info('\n\t------------------------------');
                 self.info('\tIteration #%d (depth: %d, nsample: %d, score: %g, time: %g sec)', ...
-                    self.Niter, self.Tdepth, self.Nsamp, self.LB, toc(self.tstart) );
+                    self.Niter, self.depth, self.Nsamp, self.LB, toc(self.tstart) );
                 
                 % run steps
                 [i_max,g_max] = self.step_1(objfun);
@@ -158,8 +163,39 @@ classdef GPSO < handle
             f = max(self.samp.f(1:n));
         end
         
+        % get copy of current samples
+        function [x,f] = get_samples(self,denorm)
+            if nargin < 2, denorm=true; end
+            
+            n = self.Nsamp;
+            x = self.samp.x(1:n,:); 
+            f = self.samp.f(1:n);
+            
+            if denorm
+                x = self.denormalise(x);
+            end
+        end
+        
+        % get output
+        function out = get_output(self)
+            
+            % get samples
+            n = self.Nsamp;
+            out.samp.x = self.denormalise(self.samp.x(1:n,:));
+            out.samp.f = self.samp.f(1:n);
+            
+            % find maximum point
+            [f,k] = max(out.samp.f);
+            
+            out.sol.f = f;
+            out.sol.x = out.samp.x(k,:);
+            
+        end
+        
         % call the GPML library for prediction at input coordinates x
         function [mu,sigma] = gp_call( self, x )
+            
+            assert( ~isempty(which('gp')), 'The GPML library is not on the path (use gpml_start).' );
             
             hyp = self.GP.hyp;
             err = true;
@@ -180,7 +216,9 @@ classdef GPSO < handle
                     hyp.lik = hyp.lik + 1;
                 end
             end
-            %self.GP.hyp = hyp; % JH: commit?
+            if self.dev.gpu
+                self.GP.hyp = hyp; % JH: commit?
+            end
             
             % gp returns the variance, not the std
             sigma = sqrt(sigma);
@@ -237,7 +275,9 @@ classdef GPSO < handle
         function save_sample(self,x,f)
             
             n = self.inc_samp();
-            %self.LB = max( self.LB, f ); do it at each iteration instead of continuously
+            if self.dev.lb
+                self.LB = max( self.LB, f ); % JH: may be better to do it at each iteration instead
+            end
             
             self.samp.x(n,:) = x;
             self.samp.f(n)   = f;
@@ -297,24 +337,24 @@ classdef GPSO < handle
             assert( size(domain,1)>0, 'Number of dimensions should be positive.' );
             assert( neval > 0, 'Max number of evaluations should be >0.' );
             
-            h_pre = max( 100, sqrt(neval) ); % used for preallocation, but non-limitting (see footnote p.7)
-            ndim  = size(domain,1);
-            self.info( 'Starting %d-dimensional optimisation, with a budget of %d evaluations...', ndim, neval );
-            
             if isempty(which('gp'))
                 gpml_start();
             end
             
+            h_pre = max( 100, sqrt(neval) ); % used for preallocation, but non-limitting (see footnote p.7)
+            ndim  = size(domain,1);
+            self.info( 'Starting %d-dimensional optimisation, with a budget of %d evaluations...', ndim, neval );
+            
             % dimensions & counters
-            self.Nsamp   = 0; % #of times the objective has been evaluated
-            self.Niter   = 0; % #of iterations in the main loop (each loop can evaluate multiple times)
-            self.Nsplit  = 1; % #of interval splitting (step 4)
-            self.Neval   = neval; % maximum #of objective evaluations
-            self.Ndim    = ndim; % dimensionality of search space
-            self.Nucb    = 1;
-            self.LB      = -inf;
-            self.Tdepth  = 1;
-            self.tstart  = tic;
+            self.Nsamp  = 0; % #of times the objective has been evaluated
+            self.Niter  = 0; % #of iterations in the main loop (each loop can evaluate multiple times)
+            self.Nsplit = 1; % #of interval splitting (step 4)
+            self.Nmax   = neval; % maximum #of objective evaluations
+            self.Ndim   = ndim; % dimensionality of search space
+            self.Nucb   = 1;
+            self.LB     = -inf;
+            self.depth  = 1;
+            self.tstart = tic;
             
             % XI_max
             switch floor(ndim/10)
@@ -346,7 +386,7 @@ classdef GPSO < handle
             self.save_sample( x_init, f_init );
 
             % initialise tree
-            self.tree = repstruct( {'x_max','x_min','x','f','leaf','new','node','parent','samp'}, [h_pre,1] );
+            self.tree = repstruct( {'x_max','x_min','x','f','leaf','samp'}, [h_pre,1] );
             
             T = self.tree(1);
             T.x_min = zeros(1,ndim);
@@ -361,28 +401,16 @@ classdef GPSO < handle
         
         function out = finalise(self)
             
-            ns = self.Nsamp;
-            td = self.Tdepth;
+            n = self.Nsamp;
+            d = self.depth;
             
             % remove unused allocation
-            self.tree   = self.tree(1:td);
-            self.samp.x = self.samp.x(1:ns,:);
-            self.samp.f = self.samp.f(1:ns);
+            self.tree   = self.tree(1:d);
+            self.samp.x = self.samp.x(1:n,:);
+            self.samp.f = self.samp.f(1:n);
             
-            % find maximum point
-            [f,k] = max(self.samp.f);
-            x = self.samp.x(k,:);
-            
-            % denormalise parameters
-            self.samp.x = self.denormalise(self.samp.x);
-            x = self.denormalise(x);
-            
-            % wrap up
-            out.sol.x = x;
-            out.sol.f = f;
-            
-            out.samp.x = self.samp.x;
-            out.samp.f = self.samp.f;
+            % get output
+            out = self.get_output();
             
             % information
             self.info('Best score out of %d samples: %g', self.Nsamp, out.sol.f);
@@ -394,11 +422,11 @@ classdef GPSO < handle
         function [i_max,g_max] = step_1(self,objfun)
             
             self.info('\tStep 1:');
-            i_max = zeros(self.Tdepth,1);
-            g_max = -inf(self.Tdepth,1);
+            i_max = zeros(self.depth,1);
+            g_max = -inf(self.depth,1);
             
             v_max = -inf;
-            for h = 1:self.Tdepth
+            for h = 1:self.depth
                 
                 stop  = false;
                 v_bak = v_max;
@@ -454,14 +482,14 @@ classdef GPSO < handle
         function i_max = step_2(self,i_max,g_max,XI)
             
             self.info('\tStep 2:');
-            for h = 1:self.Tdepth    
+            for h = 1:self.depth    
             if i_max(h) > 0
                 
                 % Search depth:
                 %   - cannot be deeper than the tree (duh), 
                 %   - is bounded by XI_max.
                 ki = 0;
-                h2_max = min( self.Tdepth, h+min(ceil(XI),self.XI_max) );
+                h2_max = min( self.depth, h+min(ceil(XI),self.XI_max) );
                 for h2 = (h+1) : h2_max 
                     if i_max(h2) > 0
                         ki = h2 - h; break;
@@ -485,13 +513,13 @@ classdef GPSO < handle
                 for h2 = 1:ki
                     for i2 = 1:3^(h2-1)
 
-                        [x,g,d,s] = split_largest_dimension( T(h2), i2 );
-                        [z_max,M] = self.subroutine_z_max( g, z_max, M );
-                        [z_max,M] = self.subroutine_z_max( d, z_max, M );
+                        [g,d,x,s]  = split_largest_dimension( T(h2), i2 );
+                        [mu,sigma] = self.gp_call( [g;d] ); M = M+2;
+                        z_max      = max( mu + self.GP.varsigma(M)*sigma );
 
                         if z_max >= g_max(h+ki), break; end
 
-                        U = split_tree( T(h2), i2, x, g, d, s );
+                        U = split_tree( T(h2), i2, g, d, x, s );
                         T(h2+1).x     = [ T(h2+1).x;     U.x     ];
                         T(h2+1).x_min = [ T(h2+1).x_min; U.x_min ];
                         T(h2+1).x_max = [ T(h2+1).x_max; U.x_max ];
@@ -516,38 +544,32 @@ classdef GPSO < handle
             
         end
         
-        function [z_max,M] = subroutine_z_max(self,x,z_max,M)
-            [mu,sigma] = self.gp_call(x);
-            z_max = max( z_max, mu + self.GP.varsigma(M)*sigma );
-            M = M+1;
-        end
-        
         function rho = step_3(self,objfun,i_max,g_max)
             
             v_max = -inf;
             rho = 0;
             
             self.info('\tStep 3:');
-            for h = 1:self.Tdepth
+            for h = 1:self.depth
             if i_max(h) > 0
                 
                 if g_max(h) < v_max % JH: >= instead of >
                     self.info('\t\t[h=%02d] Drop selection (known=%g < upstream=%g)',h,g_max(h),v_max);
                     continue;
-                else
-                    %v_max = g_max(h); % JH: should we do that?
+                elseif self.dev.gmax
+                    v_max = g_max(h); % JH: should we do that?
                 end
                 
                 rho = rho+1;
-                self.Tdepth = max( self.Tdepth, h+1 );
+                self.depth = max( self.depth, h+1 );
                 
                 % Split the leaf along largest dimension
                 self.tree(h).leaf(i_max(h)) = 0;
-                [x,g,d,s] = split_largest_dimension( self.tree(h), i_max(h) );
+                [g,d,x,s] = split_largest_dimension( self.tree(h), i_max(h) );
                 self.inc_split();
                 
                 % Compute extents of new intervals
-                U  = split_tree( self.tree(h), i_max(h), x, g, d, s );
+                U  = split_tree( self.tree(h), i_max(h), g, d, x, s );
                 xf = self.tree(h).f(i_max(h));
                 xs = self.tree(h).samp(i_max(h)); % JH: only valid if x is unchanged (cf split_largest_dimension)!
                 % assert( xs == 1 ); We know it is 1 because of step_1
@@ -577,8 +599,11 @@ classdef GPSO < handle
             % UCB at point x (force sampling if not using GP)
             if self.GP_use
                 [mu,sigma] = self.gp_call(x);
-                %UCB = m + (self.GP.varsigma(self.Nucb)+0.2)*sigma; JH: UCB boosting??
-                UCB = mu + self.GP.varsigma(self.Nucb)*sigma; 
+                if self.dev.ucb
+                    UCB = mu + (self.GP.varsigma(self.Nucb)+0.2)*sigma; % JH: UCB boosting??
+                else
+                    UCB = mu + self.GP.varsigma(self.Nucb)*sigma; 
+                end
             else
                 UCB = +inf;
             end 
@@ -626,7 +651,7 @@ end
 %        Tmin     Gmax     Dmin      Tmax
 %
 
-function [x,g,d,s] = split_largest_dimension(T,k)
+function [g,d,x,s] = split_largest_dimension(T,k)
 
     x = T.x(k,:);
     g = x;
@@ -645,7 +670,7 @@ function [x,g,d,s] = split_largest_dimension(T,k)
 
 end
 
-function U = split_tree(T,k,x,g,d,s)
+function U = split_tree(T,k,g,d,x,s)
 
     Tmin = T.x_min(k,:);
     Tmax = T.x_max(k,:);

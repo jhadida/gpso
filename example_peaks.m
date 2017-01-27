@@ -1,4 +1,4 @@
-function example_peaks( neval, xdom, ydom )
+function obj = example_peaks( neval, xdom, ydom )
 
     if nargin < 2, xdom=[-3 3 100]; end
     if nargin < 3, ydom=xdom; end
@@ -28,12 +28,13 @@ function example_peaks( neval, xdom, ydom )
         sur = reshape( sur, size(ref) );
         
         ns = src.Nsamp;
-        td = src.Tdepth;
+        ni = src.Niter;
+        td = src.depth;
         
-        draw_surrogate( sur, ref-sur );
+        draw_surrogate( ref, sur );
         draw_tree( src.tree, td, scl );
         draw_samples(bsxfun( @times, src.samp.x(1:ns,:), scl ));
-        pause;
+        dk.ui.fig.print( gcf, 'example_fail/iter_%02d', ni );
     end
     
 end
@@ -50,12 +51,13 @@ function z = objfun(x,y)
 
 end
 
-function draw_surrogate(z,d)
-    surf(10+z); 
+function draw_surrogate(r,s)
+    surf(s+15,r-s); 
     hold on;
-    imagesc(d); 
-    colormap('jet'); caxis([-8 8]); colorbar; 
-    hold off;
+    imagesc(r); 
+    colormap('jet'); 
+    caxis([-8 8]); colorbar; 
+    axis tight; hold off;
 end
 
 function draw_tree(T,d,s)
@@ -64,7 +66,10 @@ function draw_tree(T,d,s)
         L = find(T(h).leaf);
         n = numel(L);
         for k = 1:n
-            draw_rectangle(s(1)*T(h).x_min(L(k),:),s(2)*T(h).x_max(L(k),:));
+            draw_rectangle(...
+                s(1) * T(h).x_min(L(k),:), ...
+                s(2) * T(h).x_max(L(k),:) ...
+            );
         end
     end
     hold off;

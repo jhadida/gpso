@@ -13,8 +13,6 @@ function out = gpso_run( objfun, domain, niter, verb )
 %           Inputs to the objective function are guaranteed to be in this domain.
 %
 %    niter  Number of iterations to run, depends on the dimensionality of the problem and size of the domain.
-%    sigma  Initial std used by the likelihood function.
-%           Note that the domain is internally rescaled to [0,1]^D, so the std value should be normalised.
 %
 %     verb  (optional) Verbosity flag, true by default.
 %
