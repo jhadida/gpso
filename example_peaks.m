@@ -1,10 +1,20 @@
-function obj = example_peaks( neval, xdom, ydom )
+function obj = example_peaks( nmax, xdom, ydom )
+%
+% Example work: 
+% example_peaks(50);
+% example_peaks(80,[-9 7 50],[-10 13 50]);
+% example_peaks(80,[-9 7 50],[-2 13 50]);
+%
+% Example fail: 
+% example_peaks(100,[-5 10 100],[-5 17 100]);
+%
+% JH
 
     if nargin < 2, xdom=[-3 3 100]; end
     if nargin < 3, ydom=xdom; end
 
     % optimiser and listener
-    obj = GPSO().set_defaults();
+    obj = GPSO().configure();
     obj.addlistener( 'PostIteration', @callback );
     
     % generate reference surface
@@ -20,21 +30,22 @@ function obj = example_peaks( neval, xdom, ydom )
     
     % run optimisation
     domain = [ xdom(1:2); ydom(1:2) ];
-    obj.run( @objfun, domain, neval );
+    obj.run( @objfun, domain, nmax );
 
     % callback function
     function callback( src, edata )
-        sur = src.gp_call( src.normalise(grd) );
-        sur = reshape( sur, size(ref) );
         
-        ns = src.Nsamp;
-        ni = src.Niter;
-        td = src.depth;
+        tree = src.tree;
+        srgt = src.srgt;
+        
+        [mu,sigma] = srgt.surrogate(grd);
+        sur = reshape( mu + sigma, size(ref) );
         
         draw_surrogate( ref, sur );
-        draw_tree( src.tree, td, scl );
-        draw_samples(bsxfun( @times, src.samp.x(1:ns,:), scl ));
-        dk.ui.fig.print( gcf, 'example_fail/iter_%02d', ni );
+        draw_tree( tree, scl );
+        draw_samples(bsxfun( @times, srgt.samp_evaluated, scl ));
+        pause(0.5);
+        %dk.ui.fig.print( gcf, 'example_fail/iter_%02d', src.Niter );
     end
     
 end
@@ -52,7 +63,7 @@ function z = objfun(x,y)
 end
 
 function draw_surrogate(r,s)
-    surf(s+15,r-s); 
+    surf(s-15,r-s); 
     hold on;
     imagesc(r); 
     colormap('jet'); 
@@ -60,15 +71,15 @@ function draw_surrogate(r,s)
     axis tight; hold off;
 end
 
-function draw_tree(T,d,s)
-    hold on;
+function draw_tree(T,s)
+    hold on; d=T.depth;
     for h = 1:d
-        L = find(T(h).leaf);
+        L = find(T.level(h).leaf);
         n = numel(L);
         for k = 1:n
             draw_rectangle(...
-                s(1) * T(h).x_min(L(k),:), ...
-                s(2) * T(h).x_max(L(k),:) ...
+                s(1) * T.lower(h,L(k)), ...
+                s(2) * T.upper(h,L(k)) ...
             );
         end
     end
@@ -78,12 +89,12 @@ end
 function draw_rectangle(xmin,xmax)
     x = [xmin(1),xmin(1),xmax(1),xmax(1),xmin(1)];
     y = [xmin(2),xmax(2),xmax(2),xmin(2),xmin(2)];
-    z = ones(1,5);
+    z = 0.1*ones(1,5);
     plot3(x,y,z,'k-');
 end
 
 function draw_samples(X)
     hold on; n = size(X,1);
-    plot3(X(:,1),X(:,2),ones(n,1),'r*');
+    plot3(X(:,1),X(:,2),0.1*ones(n,1),'r*');
     hold off;
 end

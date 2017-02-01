@@ -1,4 +1,4 @@
-function [x, fx, X_sample, F_sample, tree] = imgpo_default( objfun, x_domain, nb_iter, verbose )
+function [x, fx, X_sample, F_sample, tree] = imgpo_default( objfun, x_domain, nb_eval, verbose )
 %
 % execute imgpo with a default setting used in a NIPS paper
 %
@@ -14,7 +14,7 @@ function [x, fx, X_sample, F_sample, tree] = imgpo_default( objfun, x_domain, nb
 %      objfun = ovjective function (to be optimized)
 %      x_input_domain = input domain; 
 %          e.g., = [-1 3; -3 3] means that domain(f) = {(x1,x2) : -1 <= x1 <= 3 and -3 <= x2 <= 3]} 
-%      nb_iter = the number of iterations to perform
+%      nb_eval = the number of evaluations allowed
 % input display flag:
 %      result_diplay = 1: print intermidiate results
 %      result_save = 1: save intermidiate result and return as result
@@ -52,6 +52,6 @@ function [x, fx, X_sample, F_sample, tree] = imgpo_default( objfun, x_domain, nb
     GP.hyp = hyp;
 
     [x, fx, X_sample, F_sample, tree] = imgpo( ...
-        objfun, x_domain, nb_iter, XI_max, GP, verbose, 0 );
+        objfun, x_domain, nb_eval, XI_max, GP, verbose, 0 );
 
 end

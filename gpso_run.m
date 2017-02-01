@@ -1,4 +1,4 @@
-function out = gpso_run( objfun, domain, niter, verb )
+function out = gpso_run( objfun, domain, neval, verb )
 %
 % out = gpso_run( objfun, domain, niter, verb=true )
 %
@@ -12,7 +12,7 @@ function out = gpso_run( objfun, domain, niter, verb )
 %   domain  Cartesian domain Dx2 for parameter sampling. 
 %           Inputs to the objective function are guaranteed to be in this domain.
 %
-%    niter  Number of iterations to run, depends on the dimensionality of the problem and size of the domain.
+%    neval  Number of evaluations allowed, depends on the dimensionality of the problem and size of the domain.
 %
 %     verb  (optional) Verbosity flag, true by default.
 %
@@ -32,11 +32,11 @@ function out = gpso_run( objfun, domain, niter, verb )
     assert( size(domain,2)==2, 'Domain should be Nd x 2.' );
     
     if USE_NEW
-        obj = GPSO().set_defaults(); 
-        out = obj.run( objfun, domain, niter, verb );
+        obj = GPSO().configure(); 
+        out = obj.run( objfun, domain, neval, verb );
     else
         gpml_start;
-        [x,fx,Xsamp,Fsamp] = imgpo_default( objfun, domain, niter, verb );
+        [x,fx,Xsamp,Fsamp] = imgpo_default( objfun, domain, neval, verb );
         gpml_stop;
         
         out.sol.x = x;

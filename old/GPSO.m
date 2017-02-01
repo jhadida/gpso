@@ -1,10 +1,12 @@
-classdef GPSO_dev < handle
+classdef GPSO < handle
     
     properties (SetAccess=private)
         tree
         samp
-        bound
+        
         GP
+        GP_use
+        GP_norm
     end
     
     properties (Hidden,Transient,SetAccess=private)
@@ -20,7 +22,6 @@ classdef GPSO_dev < handle
         tstart  % initialisation time
         verb    % verbose switch
         dev     % development options
-        obj     % objective function
     end
     
     events
@@ -32,16 +33,17 @@ classdef GPSO_dev < handle
     
     methods
         
-        function self = GPSO_dev()
+        function self = GPSO()
             self.clear();
         end
         
         function self=clear(self)
             
-            self.tree  = [];
-            self.samp  = struct();
-            self.bound = struct();
-            self.GP    = struct();
+            self.tree    = [];
+            self.samp    = struct();
+            self.GP      = struct();
+            self.GP_use  = false;
+            self.GP_norm = 1;
             
             self.dev.gmax = false;
             self.dev.ucb  = false;
@@ -56,6 +58,7 @@ classdef GPSO_dev < handle
             if nargin < 7, eta=0.05; end
             if nargin < 6, update=[1:6,8,floor(logspace(1,5))]; end
             
+            self.GP_use = true;
             self.GP.hyp = hyp;
             self.GP.likfunc = likfunc;
             self.GP.meanfunc = meanfunc;
@@ -65,13 +68,15 @@ classdef GPSO_dev < handle
             
         end
         function self=unset_GP(self)
+            self.GP_use = false;
             self.GP = struct();
         end
         
         % default options
-        function self=set_defaults( self, sigma )
+        function self=set_defaults( self, sigma, norm )
             
             if nargin < 2, sigma = 1e-4; end
+            if nargin < 3, norm = 1; end
             
             likfunc  = @likGauss;  % Gaussian likelihood
             meanfunc = @meanConst; %  Constant mean 
@@ -83,6 +88,7 @@ classdef GPSO_dev < handle
             hyp.lik  = log(sigma); 
             hyp.cov  = log([ell; sf]); % hyper-parameters
             
+            self.GP_norm = norm;
             self.set_GP( hyp, likfunc, meanfunc, covfunc );
             
         end
@@ -115,7 +121,9 @@ classdef GPSO_dev < handle
                 
                 % run steps
                 [i_max,g_max] = self.step_1(objfun);
-                i_max = self.step_2(i_max,g_max,XI);
+                if self.GP_use
+                    i_max = self.step_2(i_max,g_max,XI);
+                end
                 rho(self.Niter) = self.step_3(objfun,i_max,g_max); %#ok
                 
                 % update XI
@@ -127,7 +135,9 @@ classdef GPSO_dev < handle
                 end
                 
                 % update GP hyper parameters
-                next = self.gp_update(next);
+                if self.GP_use 
+                    next = self.gp_update(next);
+                end
                 self.notify( 'PostIteration' );
                 
             end
@@ -276,7 +286,11 @@ classdef GPSO_dev < handle
         
         % get GP-friendly samples
         function x = gp_prep(self,x)
-            % nothing to do
+            if self.GP_norm > 0
+                x = self.GP_norm * x;
+            else
+                x = self.denormalise(x);
+            end
         end
         function [x,f] = gp_data(self)
             n = self.Nsamp;
@@ -317,7 +331,7 @@ classdef GPSO_dev < handle
     
     methods (Hidden,Access=private)
         
-        function initialise(self,objfun,domain,neval)
+        function f_init = initialise(self,objfun,domain,neval)
             
             assert( size(domain,2)==2, 'Domain should be Nx2.' );
             assert( size(domain,1)>0, 'Number of dimensions should be positive.' );
@@ -327,7 +341,8 @@ classdef GPSO_dev < handle
                 gpml_start();
             end
             
-            ndim = size(domain,1);
+            h_pre = max( 100, sqrt(neval) ); % used for preallocation, but non-limitting (see footnote p.7)
+            ndim  = size(domain,1);
             self.info( 'Starting %d-dimensional optimisation, with a budget of %d evaluations...', ndim, neval );
             
             % dimensions & counters
@@ -340,7 +355,6 @@ classdef GPSO_dev < handle
             self.LB     = -inf;
             self.depth  = 1;
             self.tstart = tic;
-            self.obj    = objfun;
             
             % XI_max
             switch floor(ndim/10)
@@ -357,6 +371,7 @@ classdef GPSO_dev < handle
             x_upper = domain(:,2)';
             x_delta = x_upper - x_lower;
             x_init  = (x_upper + x_lower)/2;
+            f_init  = objfun(x_init);
 
             assert( all(x_delta > eps), 'Domain is too narrow.' );
             
@@ -364,17 +379,23 @@ classdef GPSO_dev < handle
             self.samp.upper = x_upper;
             self.samp.delta = x_delta;
 
-            self.samp.x = GPSO_Array( 100, ndim );
-            self.samp.y = GPSO_Array( 100, 3 );
-            self.save_sample( self.normalise(x_init) );
+            self.samp.x = nan( neval, ndim );
+            self.samp.f = nan( neval, 1 );
+            
+            x_init = self.normalise(x_init);
+            self.save_sample( x_init, f_init );
 
             % initialise tree
-            T.lower = zeros(1,ndim);
-            T.upper = ones(1,ndim);
-            T.samp  = 1;
-            T.orig  = 0;
-            T.leaf  = 1;
-            self.tree = T;
+            self.tree = repstruct( {'x_max','x_min','x','f','leaf','samp'}, [h_pre,1] );
+            
+            T = self.tree(1);
+            T.x_min = zeros(1,ndim);
+            T.x_max = ones(1,ndim);
+            T.x = x_init;
+            T.f = f_init;
+            T.leaf = 1;
+            T.samp = 1;
+            self.tree(1) = T;
             
         end
         
@@ -576,12 +597,16 @@ classdef GPSO_dev < handle
         function [f,s,v_max] = subroutine_UCB(self,objfun,x,v_max)
             
             % UCB at point x (force sampling if not using GP)
-            [mu,sigma] = self.gp_call(x);
-            if self.dev.ucb
-                UCB = mu + (self.GP.varsigma(self.Nucb)+0.2)*sigma; % JH: UCB boosting??
+            if self.GP_use
+                [mu,sigma] = self.gp_call(x);
+                if self.dev.ucb
+                    UCB = mu + (self.GP.varsigma(self.Nucb)+0.2)*sigma; % JH: UCB boosting??
+                else
+                    UCB = mu + self.GP.varsigma(self.Nucb)*sigma; 
+                end
             else
-                UCB = mu + self.GP.varsigma(self.Nucb)*sigma; 
-            end
+                UCB = +inf;
+            end 
             
             % Sample only if UCB exceeds overall best known score
             if UCB <= self.LB

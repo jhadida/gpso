@@ -9,7 +9,7 @@ function [dirs,root] = gpml_path()
 
     root = fileparts(mfilename('fullpath'));
     gpml = fullfile(root,'gpml');
-    dirs = dk.cellfun( @(x) fullfile(gpml,x), {'cov','doc','inf','lik','mean','prior','util'}, false );
+    dirs = dk.cellfun( @(x) fullfile(gpml,x), {'cov','doc','inf','lik','mean','prior','util/lbfgsb','util'}, false );
     dirs = [ {gpml}, dirs ];
 
 end
