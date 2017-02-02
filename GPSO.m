@@ -3,16 +3,8 @@ classdef GPSO < handle
     properties (SetAccess=private)
         srgt % GP surrogate
         tree % sampling tree
-    end
-    
-    properties (Transient,SetAccess=private)
-        Niter   % #of iterations
-        tstart  % initialisation time
-        verb    % verbose switch
-        obj     % objective function
-        
-        XI_max  % maximum GP expansion depth
-        iterd   % iteration data
+        iter % iteration data
+        verb % verbose switch
     end
     
     events
@@ -26,11 +18,14 @@ classdef GPSO < handle
         
         function self = GPSO()
             self.clear();
+            self.configure(); % set defaults
         end
         
         function self=clear(self)
             self.srgt = GP_Surrogate();
             self.tree = GPSO_Tree();
+            self.iter = {};
+            self.verb = true;
         end
         
         function self=configure( self, sigma, eta )
@@ -97,28 +92,33 @@ classdef GPSO < handle
             assert( dk.is.number(upc) && upc>1, 'upc should be >1.' );
             assert( isscalar(verb) && islogical(verb), 'verb should be boolean.' );
             
-            self.verb  = verb;
-            self.iterd = {};
+            self.iter = {};
+            self.verb = verb;
             
             % initialisation
             self.info( 'Starting %d-dimensional optimisation, with a budget of %d evaluations...', Ndim, Nmax );
-            self.initialise( objfun, domain );
+            self.initialise( domain, objfun );
             self.notify( 'PostInitialise' );
             
             % iterate
-            LB  = self.srgt.best_score();
-            XI  = 1;
+            LB = self.srgt.best_score();
+            XI = 1;
             upn = 1;
+            Niter = 0;
+            tstart = tic;
+            XI_max = self.max_search_depth();
+            
+            gpml_start();
             while self.srgt.Ne < Nmax
                 
-                self.Niter = self.Niter + 1;
-                self.info('\n\t------------------------------ Elapsed time: %g sec', toc(self.tstart));
+                Niter = Niter+1;
+                self.info('\n\t------------------------------ Elapsed time: %s', dk.time.sec2str(toc(tstart)) );
                 self.info('\tIteration #%d (depth: %d, neval: %d, score: %g)', ...
-                    self.Niter, self.tree.depth, self.srgt.Ne, LB );
+                    Niter, self.tree.depth, self.srgt.Ne, LB );
                 
                 % run steps
-                LB = self.step_1(LB);
-                [i_max,k_max,g_max] = self.step_2();
+                LB = self.step_1(LB,objfun);
+                [i_max,k_max,g_max] = self.step_2(objfun);
                 [i_max,k_max] = self.step_3(i_max,k_max,g_max,XI);
                 
                 if any(i_max)
@@ -133,13 +133,13 @@ classdef GPSO < handle
                 LB = self.srgt.best_score();
                 
                 % update iteration data
-                self.iterd{end+1} = [XI, nnz(i_max), LB];
+                self.iter{Niter} = [XI, nnz(i_max), LB];
                 
                 % update XI (line 38)
                 if LB_old == LB
                     XI = max( 1, XI - 2^-1 );
                 else
-                    XI = min( self.XI_max, XI + 2^2 );
+                    XI = min( XI_max, XI + 2^2 );
                 end
                 
                 % update GP hyper parameters
@@ -147,10 +147,35 @@ classdef GPSO < handle
                 self.notify( 'PostIteration' );
                 
             end
+            gpml_stop();
             
             self.notify( 'PreFinalise' );
             out = self.finalise();
             
+            self.info('Best score out of %d samples: %g', numel(out.samp.f), out.sol.f);
+            self.info('Total runtime: %s', dk.time.sec2str(toc(tstart)) );
+            
+        end
+        
+        % serialise data to be saved
+        function D = serialise(self,filename)
+            D.iter = self.iter;
+            D.tree = self.tree.serialise();
+            D.surrogate = self.srgt.serialise();
+            D.version = '0.1';
+            
+            if nargin > 1
+                save( filename, '-v7', '-struct', 'D' );
+            end
+        end
+        function self=unserialise(self,D)
+            
+            if ischar(D)
+                D = load(D);
+            end
+            self.iter = D.iter;
+            self.tree = GPSO_Tree().unserialise(D.tree);
+            self.srgt = GP_Surrogate().unserialise(D.surrogate);
         end
         
     end
@@ -176,10 +201,19 @@ classdef GPSO < handle
                 self.info('\tHyperparameter update (n=%d).',upn);
                 self.srgt.gp_update();
                 upn = dk.math.nextint( (sqrt(1+8*Nsplit/upc)-1)/2 );
-                assert( 2*Nsplit >= upc*upn*(upn-1) );
-                assert( 2*Nsplit < upc*upn*(upn+1) );
                 self.notify( 'PostUpdate' );
 
+            end
+        end
+        
+        function XI_max = max_search_depth(self)
+            switch floor(self.srgt.Nd/10)
+                case 0 % below 10
+                    XI_max = 8;
+                case 1 % below 20
+                    XI_max = 5;
+                otherwise % 20 and more
+                    XI_max = 3;
             end
         end
         
@@ -190,35 +224,16 @@ classdef GPSO < handle
             end
         end
         
-        function initialise(self,objfun,domain)
-            
-            if isempty(which('gp'))
-                gpml_start();
-            end
-            
-            self.Niter  = 0; 
-            self.tstart = tic;
-            self.obj    = objfun;
-            
-            % max exploration depth
-            Nd = size(domain,1);
-            switch floor(Nd/10)
-                case 0 % below 10
-                    self.XI_max = 4;
-                case 1 % below 20
-                    self.XI_max = 3;
-                otherwise % 20 and more
-                    self.XI_max = 2;
-            end
-            
-            % initialise tree
-            self.tree.init(Nd);
+        function initialise(self,domain,objfun)
             
             % initialise surrogate
             self.srgt.init( domain );
             x_init = mean(domain'); %#ok
-            f_init = self.obj(x_init);
+            f_init = objfun(x_init);
             self.srgt.append( x_init, f_init, 0, false );
+            
+            % initialise tree
+            self.tree.init(self.srgt.Nd);
             
         end
         
@@ -234,13 +249,9 @@ classdef GPSO < handle
             out.sol.x = x;
             out.sol.f = f;
             
-            self.info('Best score out of %d samples: %g', numel(out.samp.f), out.sol.f);
-            self.info('Total runtime: %s', dk.time.sec2str(toc( self.tstart )) );
-            gpml_stop();
-            
         end
         
-        function LB = step_1(self,LB)
+        function LB = step_1(self,LB,objfun)
             
             self.info('\tStep 1:');
             
@@ -261,7 +272,7 @@ classdef GPSO < handle
                 x = self.srgt.coord( k, true );
                 f = nan(n,1);
                 for i = 1:n
-                    f(i) = self.obj(x(i,:));
+                    f(i) = objfun(x(i,:));
                 end
                 self.srgt.edit( k, f );
                 self.srgt.ucb_update();
@@ -271,7 +282,7 @@ classdef GPSO < handle
             
         end
         
-        function [i_max,k_max,g_max] = step_2(self)
+        function [i_max,k_max,g_max] = step_2(self,objfun)
             
             self.info('\tStep 2:');
             depth = self.tree.depth;
@@ -307,7 +318,7 @@ classdef GPSO < handle
                     kmax = k_max(h);
                     if (kmax > 0) && self.srgt.gp_based(kmax)
                         self.info('\t\t[h=%02d] Sampling GP-based leaf %d with UCB %g',h,kmax,v_max);
-                        self.srgt.edit( kmax, self.obj(self.srgt.coord(kmax,true)) );
+                        self.srgt.edit( kmax, objfun(self.srgt.coord(kmax,true)) );
                         upucb = true;
                     else
                         break; % either no selection, or selection is already sampled

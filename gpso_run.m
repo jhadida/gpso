@@ -32,8 +32,7 @@ function out = gpso_run( objfun, domain, neval, verb )
     assert( size(domain,2)==2, 'Domain should be Nd x 2.' );
     
     if USE_NEW
-        obj = GPSO().configure(); 
-        out = obj.run( objfun, domain, neval, [], verb );
+        out = GPSO().run( objfun, domain, neval, [], verb );
     else
         gpml_start;
         [x,fx,Xsamp,Fsamp] = imgpo_default( objfun, domain, neval, verb );
