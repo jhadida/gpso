@@ -48,7 +48,6 @@ classdef GP_Surrogate < handle
             
         end
         
-        % WARNING: by default, assumes x is NOT normalised
         function self=init(self,domain)
             
             assert( ismatrix(domain) && ~isempty(domain) && ... 
@@ -235,7 +234,7 @@ classdef GP_Surrogate < handle
                 gpml_start();
             end
             
-            % don't allow sigma to become too small
+            % don't allow sigma to become too small (bad for optimisation)
             self.GP.hyp.lik = max( self.GP.hyp.lik, -15 );
         
         end

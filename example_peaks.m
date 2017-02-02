@@ -10,6 +10,8 @@ function obj = example_peaks( nmax, xdom, ydom )
 %
 % JH
 
+    FOLDER = 'example';
+
     if nargin < 2, xdom=[-3 3 100]; end
     if nargin < 3, ydom=xdom; end
 
@@ -45,7 +47,7 @@ function obj = example_peaks( nmax, xdom, ydom )
         draw_tree( tree, scl );
         draw_samples(bsxfun( @times, srgt.samp_evaluated, scl ));
         pause(0.5);
-        %dk.ui.fig.print( gcf, 'example_fail/iter_%02d', src.Niter );
+        %dk.ui.fig.print( gcf, fullfile(FOLDER,'iter_%02d'), src.Niter );
     end
     
 end

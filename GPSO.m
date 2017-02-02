@@ -7,14 +7,12 @@ classdef GPSO < handle
     
     properties (Transient,SetAccess=private)
         Niter   % #of iterations
-        XI_max  % maximum GP expansion depth
-        iterd   % iteration data
-    end
-    
-    properties (Transient,Hidden,SetAccess=private)
         tstart  % initialisation time
         verb    % verbose switch
         obj     % objective function
+        
+        XI_max  % maximum GP expansion depth
+        iterd   % iteration data
     end
     
     events
@@ -78,20 +76,26 @@ classdef GPSO < handle
         %   This can be considered as a "budget" for the optimisation.
         %   Note that the actual number of evaluations can exceed this value (usually not by much).
         %
-        % update: default floor(logspace(1,5))
-        %   Update timings for GP hyperparameters, in number of node splits:
-        %       - if empty, update after every iteration;
-        %       - if any is null or negative, never update;
-        %       - otherwise consume vector as the number of splits exceeds the next update.
+        % upc: default 2*Ndims
+        %   Update constant for GP hyperparameters.
+        %   Hyperparameter updates will occur after number of splits:
+        %       upc*n*(n+1)/2   for   n=1,2...
         %
         % verb: default true
         %   Verbose switch.
         %
         % JH
         
+            assert( ismatrix(domain) && ~isempty(domain) && ... 
+                size(domain,2)==2 && all(diff(domain,1,2) > eps), 'Bad domain.' );
+        
             Ndim = size(domain,1);
             if nargin < 6, verb=true; end
-            if nargin < 5, upc=2*Ndim; end
+            if nargin < 5 || isempty(upc), upc=2*Ndim; end
+            
+            assert( dk.is.integer(Nmax) && Nmax>1, 'Nmax should be >1.' );
+            assert( dk.is.number(upc) && upc>1, 'upc should be >1.' );
+            assert( isscalar(verb) && islogical(verb), 'verb should be boolean.' );
             
             self.verb  = verb;
             self.iterd = {};
@@ -105,7 +109,6 @@ classdef GPSO < handle
             LB  = self.srgt.best_score();
             XI  = 1;
             upn = 1;
-            upc = upc/2;
             while self.srgt.Ne < Nmax
                 
                 self.Niter = self.Niter + 1;
@@ -140,13 +143,7 @@ classdef GPSO < handle
                 end
                 
                 % update GP hyper parameters
-                if self.tree.Ns >= (upc*upn*(upn+1))
-                    self.info('\tHyperparameter update (n=%d).',upn);
-                    self.srgt.gp_update();
-                    upn = upn+1; 
-                    self.notify( 'PostUpdate' );
-                end
-            
+                upn=self.update_quadratic(upc,upn);
                 self.notify( 'PostIteration' );
                 
             end
@@ -160,37 +157,38 @@ classdef GPSO < handle
     
     methods (Hidden,Access=private)
         
+        function upn=update_linear(self,upc,upn)
+            Nsplit = self.tree.Ns;
+            if Nsplit >= upc*upn
+
+                self.info('\tHyperparameter update (n=%d).',upn);
+                self.srgt.gp_update();
+                upn = dk.math.nextint( Nsplit/upc );
+                self.notify( 'PostUpdate' );
+
+            end
+        end
+        
+        function upn=update_quadratic(self,upc,upn)
+            Nsplit = self.tree.Ns;
+            if 2*Nsplit >= upc*upn*(upn+1)
+
+                self.info('\tHyperparameter update (n=%d).',upn);
+                self.srgt.gp_update();
+                upn = dk.math.nextint( (sqrt(1+8*Nsplit/upc)-1)/2 );
+                assert( 2*Nsplit >= upc*upn*(upn-1) );
+                assert( 2*Nsplit < upc*upn*(upn+1) );
+                self.notify( 'PostUpdate' );
+
+            end
+        end
+        
         % print messages
         function info(self,fmt,varargin)
             if self.verb
                 fprintf( [fmt '\n'], varargin{:} );
             end
         end
-        
-        % return when the next hyperparameter update is due
-        function next = find_next(self,next,update)
-            
-            if next == 0 || isinf(next)
-                return;
-            end
-            
-            k = find( update > self.tree.Ns, 1, 'first' ); 
-            if isempty(k)
-                next = Inf;
-                warning(sprintf([ ...
-                    'Number of splits exceeded largest update timing for GP hyperparameters.\n' ...
-                    'This means the GP hyperparameters will not be updated from now on (Nsplits=%d).\n' ...
-                    'Consider adding larger update timings in future runs (see input "update" to the run method).' ...
-                ],self.tree.Ns)); %#ok
-            else
-                next = update(k);
-            end
-            
-        end
-        
-    end
-    
-    methods (Hidden,Access=private)
         
         function initialise(self,objfun,domain)
             
@@ -227,17 +225,17 @@ classdef GPSO < handle
         function out = finalise(self)
             
             % list all evaluated samples
-            [x,f] = self.srgt.samp_evaluated();
+            [x,f] = self.srgt.samp_evaluated(true);
             out.samp.x = x;
             out.samp.f = f;
             
             % get best sample
-            [x,f] = self.srgt.best_sample();
+            [x,f] = self.srgt.best_sample(true);
             out.sol.x = x;
             out.sol.f = f;
             
             self.info('Best score out of %d samples: %g', numel(out.samp.f), out.sol.f);
-            self.info('Total runtime: %f sec',toc( self.tstart ));
+            self.info('Total runtime: %s', dk.time.sec2str(toc( self.tstart )) );
             gpml_stop();
             
         end
@@ -335,13 +333,16 @@ classdef GPSO < handle
         function [i_max,k_max] = step_3(self,i_max,k_max,g_max,XI)
             
             self.info('\tStep 3:');
-            depth = self.tree.depth;
-            
-            % local assignment for convenience, not to be returned!
-            XI = min( ceil(XI), self.XI_max ); 
+            depth = self.tree.depth; 
             
             % number of UCB that would be used if the current number of selected leaves were split
-            M = self.srgt.Ng + 2*nnz(i_max);
+            Ng = self.srgt.Ng;
+            Ni = nnz(i_max);
+            
+            M1 = @(i) Ng + 2*Ni; % constant with depth
+            M2 = @(i) Ng + 2*(Ni+i-1); % linear increase with depth
+            M3 = @(i) Ng + 2*(Ni+i*(i-1)/2); % quadratic increase with depth
+            varsigma = @(i) self.srgt.GP.varsigma(M2(i));
             
             for h = 1:depth
             if i_max(h) > 0
@@ -350,7 +351,7 @@ classdef GPSO < handle
                 %   - cannot be deeper than the tree (duh), 
                 %   - is bounded by XI_max.
                 sdepth = 0;
-                h2_max = min( depth, h+XI );
+                h2_max = min( depth, ceil(h+XI) );
                 for h2 = (h+1) : h2_max 
                     if i_max(h2) > 0
                         sdepth = h2 - h; break;
@@ -363,7 +364,7 @@ classdef GPSO < handle
                 %
                 % Do this by artificially expanding the GP tree and using GP-UCB
                 % to compute expected scores.
-                T = repstruct( {'lower','upper','coord'}, sdepth+1, 1 );
+                T = dk.struct.repeat( {'lower','upper','coord'}, sdepth+1, 1 );
                 
                 T(1).lower = self.tree.lower(h,i_max(h));
                 T(1).upper = self.tree.upper(h,i_max(h));
@@ -375,7 +376,7 @@ classdef GPSO < handle
 
                         [g,d,x,s]  = split_largest_dimension( T(h2), i2, T(h2).coord(i2,:) );
                         [mu,sigma] = self.srgt.gp_call( [g;d] );
-                        z_max      = max( mu + self.srgt.GP.varsigma(M)*sigma );
+                        z_max      = max( mu + varsigma(h2)*sigma );
 
                         if z_max >= g_max(h+sdepth), break; end % early cancelling
 
@@ -432,17 +433,6 @@ classdef GPSO < handle
         
     end
     
-end
-
-% create struct-array of required size
-function s = repstruct( fields, varargin )
-
-    n = numel(fields);
-    s = cell(1,2*n);
-    s(1:2:end) = fields;
-    s = struct(s{:});
-    s = repmat( s, varargin{:} );
-
 end
 
 % 
