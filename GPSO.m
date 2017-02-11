@@ -7,6 +7,10 @@ classdef GPSO < handle
         verb % verbose switch
     end
     
+    properties (Transient,Dependent)
+        Niter;
+    end
+    
     events
         PostInitialise
         PostIteration
@@ -27,6 +31,8 @@ classdef GPSO < handle
             self.iter = {};
             self.verb = true;
         end
+        
+        function n = get.Niter(self), n=1+numel(self.iter); end
         
         function self=configure( self, sigma, eta )
         %
@@ -104,17 +110,15 @@ classdef GPSO < handle
             LB = self.srgt.best_score();
             XI = 1;
             upn = 1;
-            Niter = 0;
             tstart = tic;
             XI_max = self.max_search_depth();
             
             gpml_start();
             while self.srgt.Ne < Nmax
                 
-                Niter = Niter+1;
                 self.info('\n\t------------------------------ Elapsed time: %s', dk.time.sec2str(toc(tstart)) );
                 self.info('\tIteration #%d (depth: %d, neval: %d, score: %g)', ...
-                    Niter, self.tree.depth, self.srgt.Ne, LB );
+                    self.Niter, self.tree.depth, self.srgt.Ne, LB );
                 
                 % run steps
                 LB = self.step_1(LB,objfun);
@@ -133,7 +137,7 @@ classdef GPSO < handle
                 LB = self.srgt.best_score();
                 
                 % update iteration data
-                self.iter{Niter} = [XI, nnz(i_max), LB];
+                self.iter{end+1} = [XI, nnz(i_max), LB];
                 
                 % update XI (line 38)
                 if LB_old == LB
@@ -154,6 +158,85 @@ classdef GPSO < handle
             
             self.info('Best score out of %d samples: %g', numel(out.samp.f), out.sol.f);
             self.info('Total runtime: %s', dk.time.sec2str(toc(tstart)) );
+            
+        end
+        
+        % get a node of the tree
+        function node = get_node(self,h,i)
+            node = self.tree.node(h,i);
+            node.samp = self.srgt.y(node.samp,:);
+        end
+        
+        % explore a given leaf
+        function [best,T] = explore(self,node,depth,varsigma,until)
+            
+            if nargin < 5, until=inf; end
+            
+            % get node if index were passed
+            if isvector(node)
+                node = self.get_node(node(1),node(2));
+            end
+            
+            % Temporary exploration tree
+            T = dk.struct.repeat( {'lower','upper','coord','samp'}, depth+1, 1 );
+            
+            T(1).lower = node.lower;
+            T(1).upper = node.upper;
+            T(1).coord = node.coord;
+            T(1).samp  = node.samp;
+            
+            best = T(1).samp;
+            if best(3) >= until, return; end
+            
+            for h = 1:depth
+                for i = 1:3^(h-1)
+
+                    % evaluate GP
+                    [g,d,x,s]  = split_largest_dimension( T(h), i, T(h).coord(i,:) );
+                    [mu,sigma] = self.srgt.gp_call( [g;d] );
+
+                    % update best score
+                    ucb   = mu + varsigma(h)*sigma;
+                    [u,k] = max(ucb);
+                    if u > best(3)
+                        best = [ mu(k), sigma(k), u ];
+                    end
+                    
+                    if u >= until; break; end % early cancelling
+
+                    % record new nodes
+                    U = split_tree( T(h), i, g, d, x, s );
+                    T(h+1).coord = [ T(h+1).coord; U.coord ];
+                    T(h+1).lower = [ T(h+1).lower; U.lower ];
+                    T(h+1).upper = [ T(h+1).upper; U.upper ];
+                    T(h+1).samp  = [ T(h+1).samp; [mu,sigma,ucb] ];
+
+                end
+                if u >= until; break; end % chain-break
+            end
+            
+        end
+        
+        function [best,S] = explore_samp(self,node,ns,varsigma)
+            
+            % get node if index were passed
+            if isvector(node)
+                node = self.get_node(node(1),node(2));
+            end
+            
+            % sample points at random in the node
+            nd = self.srgt.Nd;
+            delta = node.upper - node.lower;
+            S.coord = bsxfun( @times, rand(ns,nd), delta );
+            S.coord = bsxfun( @plus, S.coord, node.lower );
+            
+            % evaluate those points
+            [mu,sigma] = self.srgt.gp_call( S.coord );
+            ucb = mu + varsigma*sigma;
+            
+            [u,k]  = max(ucb);
+            best   = [ mu(k), sigma(k), u ];
+            S.samp = [ mu, sigma, ucb ];
             
         end
         
@@ -274,7 +357,7 @@ classdef GPSO < handle
                 for i = 1:n
                     f(i) = objfun(x(i,:));
                 end
-                self.srgt.edit( k, f );
+                self.srgt.update( k, f, 0 );
                 self.srgt.ucb_update();
                 LB = max([ LB; f ]);
                 self.info('\t\tNew best score is: %g',LB);
@@ -345,6 +428,7 @@ classdef GPSO < handle
             
             self.info('\tStep 3:');
             depth = self.tree.depth; 
+            upucb = false;
             
             % number of UCB that would be used if the current number of selected leaves were split
             Ng = self.srgt.Ng;
@@ -375,30 +459,8 @@ classdef GPSO < handle
                 %
                 % Do this by artificially expanding the GP tree and using GP-UCB
                 % to compute expected scores.
-                T = dk.struct.repeat( {'lower','upper','coord'}, sdepth+1, 1 );
-                
-                T(1).lower = self.tree.lower(h,i_max(h));
-                T(1).upper = self.tree.upper(h,i_max(h));
-                T(1).coord = self.srgt.coord(k_max(h));
-                
-                z_max = -inf;
-                for h2 = 1:sdepth
-                    for i2 = 1:3^(h2-1)
-
-                        [g,d,x,s]  = split_largest_dimension( T(h2), i2, T(h2).coord(i2,:) );
-                        [mu,sigma] = self.srgt.gp_call( [g;d] );
-                        z_max      = max( mu + varsigma(h2)*sigma );
-
-                        if z_max >= g_max(h+sdepth), break; end % early cancelling
-
-                        U = split_tree( T(h2), i2, g, d, x, s );
-                        T(h2+1).coord = [ T(h2+1).coord; U.coord ];
-                        T(h2+1).lower = [ T(h2+1).lower; U.lower ];
-                        T(h2+1).upper = [ T(h2+1).upper; U.upper ];
-
-                    end
-                    if z_max >= g_max(h+sdepth), break; end % "chain-break"
-                end
+                z_max = self.explore( [h,i_max(h)], sdepth, varsigma, g_max(h+sdepth) );
+                z_max = z_max(3); % take only UCB
                 
                 % If none of the downstream intervals has an "interesting" score, ignore it for this iteration.
                 if z_max < g_max(h+sdepth)

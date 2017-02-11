@@ -60,8 +60,8 @@ classdef GPSO_Tree < handle
             l = self.level(h).leaf(k);
         end
         
-        % costly function, don't use often
         % works with k vector, but h should be scalar
+        % not super efficient, don't use too often
         function n = node(self,h,k)
             n.parent = self.parent(h,k);
             n.lower  = self.lower(h,k);

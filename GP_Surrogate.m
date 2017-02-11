@@ -101,18 +101,25 @@ classdef GP_Surrogate < handle
             
         end
         
-        % evaluate GP-based sample
-        function self=edit(self,k,f)
+        % update sample score
+        function self=update(self,k,m,s)
             
             n = numel(k);
-            assert( numel(f)==n, 'Size mismatch.' );
-            f = f(:);
+            if nargin < 4, s=0; end
             
-            assert( all(self.sigma(k) > 0), '[bug] Updating non GP-based sample.' );
-            self.y(k,:) = [f,zeros(n,1),f];
+            if isscalar(s) && n>1, s=s*ones(n,1); end
+            assert( numel(m)==n, 'Size mismatch.' );
+            assert( numel(s)==n, 'Size mismatch.' );
             
-            self.Ne = self.Ne + n;
-            self.Ng = self.Ng - n;
+            m = m(:);
+            s = s(:);
+            g1 = nnz(self.y(k,2));
+            g2 = nnz(s);
+            
+            self.y(k,:) = [m,s,m];
+            
+            self.Ne = self.Ne + g1-g2;
+            self.Ng = self.Ng + g2-g1;
             
         end
         

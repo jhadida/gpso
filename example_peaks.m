@@ -10,7 +10,7 @@ function obj = example_peaks( nmax, xdom, ydom )
 %
 % JH
 
-    FOLDER = 'example';
+    FOLDER = '/Users/jhadida/Desktop/RESEARCH/presentation/170203/gp_fail';
 
     if nargin < 2, xdom=[-3 3 100]; end
     if nargin < 3, ydom=xdom; end
@@ -31,6 +31,7 @@ function obj = example_peaks( nmax, xdom, ydom )
     scl = [nx,ny];
     
     % run optimisation
+    figure; dk.ui.fig.resize(gcf,[500,1100]);
     domain = [ xdom(1:2); ydom(1:2) ];
     obj.run( @objfun, domain, nmax );
 
@@ -45,9 +46,8 @@ function obj = example_peaks( nmax, xdom, ydom )
         
         draw_surrogate( ref, sur );
         draw_tree( tree, scl );
-        draw_samples(bsxfun( @times, srgt.samp_evaluated, scl ));
-        pause(0.5);
-        %dk.ui.fig.print( gcf, fullfile(FOLDER,'iter_%02d'), src.Niter );
+        draw_samples(bsxfun( @times, srgt.samp_evaluated, scl )); pause(0.8);
+        %drawnow; dk.ui.fig.print( gcf, fullfile(FOLDER,'iter_%02d'), src.Niter );
     end
     
 end
@@ -65,15 +65,20 @@ function z = objfun(x,y)
 end
 
 function draw_surrogate(r,s)
-    surf(s-15,r-s); 
-    hold on;
-    imagesc(r); 
-    colormap('jet'); 
+    colormap('jet');
+
+    subplot(1,2,1);
+    imagesc(r); caxis([-8 8]); colorbar; 
+    set(gca,'YDir','normal');
+    
+    subplot(1,2,2)
+    surf(s,r-s); 
     caxis([-8 8]); colorbar; 
-    axis tight; hold off;
+    axis tight;
 end
 
 function draw_tree(T,s)
+    subplot(1,2,1);
     hold on; d=T.depth;
     for h = 1:d
         L = find(T.level(h).leaf);
@@ -92,11 +97,13 @@ function draw_rectangle(xmin,xmax)
     x = [xmin(1),xmin(1),xmax(1),xmax(1),xmin(1)];
     y = [xmin(2),xmax(2),xmax(2),xmin(2),xmin(2)];
     z = 0.1*ones(1,5);
-    plot3(x,y,z,'k-');
+    %plot3(x,y,z,'k-');
+    plot(x,y,'k-');
 end
 
 function draw_samples(X)
     hold on; n = size(X,1);
-    plot3(X(:,1),X(:,2),0.1*ones(n,1),'r*');
+    %plot3(X(:,1),X(:,2),0.1*ones(n,1),'r*');
+    plot(X(:,1),X(:,2),'r*');
     hold off;
 end
