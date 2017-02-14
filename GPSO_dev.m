@@ -1,4 +1,4 @@
-classdef GPSO < handle
+classdef GPSO_dev < handle
     
     properties (SetAccess=private)
         srgt % GP surrogate
@@ -20,7 +20,7 @@ classdef GPSO < handle
     
     methods
         
-        function self = GPSO()
+        function self = GPSO_dev()
             self.clear();
             self.configure(); % set defaults
         end
@@ -34,12 +34,12 @@ classdef GPSO < handle
         
         function n = get.Niter(self), n=1+numel(self.iter); end
         
-        function self=configure( self, sigma, eta )
+        function self=configure( self, sigma, optim )
         %
         % sigma: default 1e-4
         %   Initial log-std of Gaussian likelihood function (normalised units).
         %
-        % eta: default 0.05
+        % optim: default 0.05
         %   Probability that UCB < f.
         %
         % JH
@@ -58,8 +58,7 @@ classdef GPSO < handle
             hyp.lik  = log(sigma); 
             hyp.cov  = log([ell; sf]); 
             
-            self.srgt.gpconf( hyp, meanfunc, covfunc );
-            self.srgt.gp_varsigma_paper( eta );
+            self.srgt.gpconf( hyp, meanfunc, covfunc, eta );
             
         end
         
@@ -313,12 +312,22 @@ classdef GPSO < handle
             
             % initialise surrogate
             self.srgt.init( domain );
-            x_init = mean(domain'); %#ok
-            f_init = objfun(x_init);
-            self.srgt.append( x_init, f_init, 0, false );
+            nd = self.srgt.Nd;
+            nx = 2*nd+1;
+            
+            Xinit = [ ...
+                0.5*ones(nd) - 0.25*eye(nd); ...
+                0.5*ones(nd) + 0.25*eye(nd); ...
+                0.5*ones(1,nd) ...
+            ]; 
+            Finit = nan(np,1);
+            for k = 1:nx
+                Finit(k) = objfun(self.srgt.denormalise(Xinit(k,:)));
+            end
+            self.srgt.append( Xinit, Finit );
             
             % initialise tree
-            self.tree.init(self.srgt.Nd);
+            self.tree.init(nd,nx);
             
         end
         
@@ -554,5 +563,21 @@ function U = split_tree(T,k,g,d,x,s)
     U.coord = [g;d;x];
     U.lower = [Tmin;Dmin;Xmin];
     U.upper = [Gmax;Tmax;Xmax];
+
+end
+
+function points = hyperface_pyramid(D)
+%
+% Returns the coordinates of the centre of the pyramids associated with each face 
+% in a hypercube of dimension D. The centre of the hypercube itself is appended to
+% the results. In total, this function outputs 2D+1 points.
+%
+% JH
+    
+    points = [ ...
+        0.5*ones(D) - 0.25*eye(D); ...
+        0.5*ones(D) + 0.25*eye(D); ...
+    	0.5*ones(1,D) ...
+    ];
 
 end

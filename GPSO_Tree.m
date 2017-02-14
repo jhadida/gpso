@@ -21,13 +21,15 @@ classdef GPSO_Tree < handle
             self.Ns = 0;
         end
         
-        function self=init(self,ndim)
+        function self=init(self,ndim,samp)
+            
+            if nargin < 3, samp=1; end
             
             % initialise tree
             T.parent = [0,1];
             T.lower  = zeros(1,ndim);
             T.upper  = ones(1,ndim);
-            T.samp   = 1;
+            T.samp   = samp;
             T.leaf   = true;
             
             self.level = T;

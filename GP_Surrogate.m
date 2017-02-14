@@ -33,19 +33,29 @@ classdef GP_Surrogate < handle
             self.Ng = 0;
         end
         
-        function self=gpconf(self, hyp, meanfunc, covfunc, eta)
-            
-            if nargin < 5, eta=0.05; end % probability that UCB < f 
+        % dependent properties
+        function n = get.Ns(self), n = size(self.x,1); end
+        function n = get.Nd(self), n = size(self.x,2); end
+        function d = get.delta(self), d = self.upper-self.lower; end
+        
+        function self=gpconf(self, hyp, meanfunc, covfunc)
             
             gp.hyp = hyp;
             gp.likfunc = @likGauss; % Gaussian likelihood is assumed for analytics
             gp.meanfunc = meanfunc;
             gp.covfunc = covfunc;
-            gp.varsigma = @(M) sqrt(max( 0, 4*log(pi*M) - 2*log(12*eta) )); % cf Lemma 1
-            % JH: original varsigma can be complex for M=1 and eta=1
             
             self.GP = gp;
             
+        end
+        
+        function gp_varsigma_paper(self,eta)
+            % JH: original varsigma can be complex for M=1 and eta=1
+            self.GP.varsigma = @(M) sqrt(max( 0, 4*log(pi*M) - 2*log(12*eta) )); % cf Lemma 1
+        end
+        
+        function gp_varsigma_const(self,val)
+            self.GP.varsigma = @(M) val;
         end
         
         function self=init(self,domain)
@@ -154,11 +164,6 @@ classdef GP_Surrogate < handle
     end
     
     methods
-        
-        % dependent properties
-        function n = get.Ns(self), n = size(self.x,1); end
-        function n = get.Nd(self), n = size(self.x,2); end
-        function d = get.delta(self), d = self.upper-self.lower; end
         
         % named access to y's columns
         function y = ycol(self,c,k)
