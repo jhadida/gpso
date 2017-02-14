@@ -34,18 +34,18 @@ classdef GPSO_dev < handle
         
         function n = get.Niter(self), n=1+numel(self.iter); end
         
-        function self=configure( self, sigma, optim )
+        function self=configure( self, sigma, varsigma )
         %
         % sigma: default 1e-4
         %   Initial log-std of Gaussian likelihood function (normalised units).
         %
-        % optim: default 0.05
-        %   Probability that UCB < f.
+        % varsigma: default 3
+        %   Controls the probability that UCB < f.
         %
         % JH
             
             if nargin < 2, sigma = 1e-4; end
-            if nargin < 3, eta = 0.05; end 
+            if nargin < 3, varsigma = 3; end 
             
             meanfunc = @meanConst; hyp.mean = 0;
             covfunc  = {@covMaterniso, 5}; % isotropic Matern covariance 
@@ -58,7 +58,8 @@ classdef GPSO_dev < handle
             hyp.lik  = log(sigma); 
             hyp.cov  = log([ell; sf]); 
             
-            self.srgt.gpconf( hyp, meanfunc, covfunc, eta );
+            self.srgt.gpconf( hyp, meanfunc, covfunc );
+            self.srgt.gp_varsigma_const( varsigma );
             
         end
         
