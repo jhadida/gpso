@@ -18,6 +18,17 @@ classdef GPSO_dev < handle
         PreFinalise
     end
     
+    
+    
+    
+    %% EXPOSED INTERFACE
+    %
+    % All the functions that a typical user will call.
+    %
+    % Housekeeping (constructor + cleanup)
+    % Runtime (configuration + run)
+    % Post-analysis (exploration + serialisation).
+    %
     methods
         
         function self = GPSO_dev()
@@ -32,6 +43,8 @@ classdef GPSO_dev < handle
             self.verb = true;
         end
         
+        % dependent parameter to get the current iteration count
+        % useful when working with event callbacks
         function n = get.Niter(self), n=1+numel(self.iter); end
         
         function self=configure( self, sigma, varsigma )
@@ -162,16 +175,31 @@ classdef GPSO_dev < handle
             
         end
         
-        % get a node of the tree
         function node = get_node(self,h,i)
+        %
+        % h: depth
+        % i: depth-specific node index
+        %
+        % Get a node of the tree, with coordinates and sample.
+        %
+        
             node = self.tree.node(h,i);
             node.coord = self.srgt.x(node.samp,:);
             node.samp  = self.srgt.y(node.samp,:);
         end
         
-        % explore a given leaf
         function [best,T] = explore(self,node,depth,varsigma,until)
-            
+        %
+        % node: either a 1x2 array [h,i] (cf get_node), or a node structure
+        % depth: how deep the exploration tree should be 
+        %   (WARNING: tree grows exponentially, there will be 3^depth node)
+        % varsigma: optimism constant to be used locally for UCB
+        % until: early cancelling criterion (stop if one of the samples has a better score)
+        %   (NOTE: default is Inf, so full exploration)
+        %
+        % Explore node by growing exhaustive partition tree, using surrogate for evaluation.
+        %
+        
             if nargin < 5, until=inf; end
             
             % get node if index were passed
@@ -220,6 +248,13 @@ classdef GPSO_dev < handle
         end
         
         function [best,S] = explore_samp(self,node,ns,varsigma)
+        %
+        % node: either a 1x2 array [h,i] (cf get_node), or a node structure
+        % ns: number of random points to draw within the node
+        % varsigma: optimism constant to be used locally for UCB
+        %
+        % Explore node by drawing uniformly distributed sample, using surrogate for evaluation. 
+        %
             
             % get node if index were passed
             if isvector(node)
@@ -265,13 +300,39 @@ classdef GPSO_dev < handle
         
     end
     
+    
+    
+    
+    %% UTILITIES
+    %
+    % Functions used internally by the algorithm.
+    %
     methods (Hidden,Access=private)
         
-        function upn=update_linear(self,upc,upn)
+        % facade method
+        function upn=update_gp(self,upc,upn)
+            upn = self.update_samp_linear(upc,upn);
+        end
+        
+        % keeping tabs on number of evaluated samples
+        function upn=update_samp_linear(self,upc,upn)
+            Ne = self.srgt.Ne;
+            if (Ne-upn) >= upc
+
+                self.info('\tHyperparameter update (neval=%d).',upn);
+                self.srgt.gp_update();
+                upn = Ne;
+                self.notify( 'PostUpdate' );
+
+            end
+        end
+        
+        % keeping tabs on number of node split
+        function upn=update_split_linear(self,upc,upn)
             Nsplit = self.tree.Ns;
             if Nsplit >= upc*upn
 
-                self.info('\tHyperparameter update (n=%d).',upn);
+                self.info('\tHyperparameter update (nsplit=%d).',upn);
                 self.srgt.gp_update();
                 upn = dk.math.nextint( Nsplit/upc );
                 self.notify( 'PostUpdate' );
@@ -279,11 +340,11 @@ classdef GPSO_dev < handle
             end
         end
         
-        function upn=update_quadratic(self,upc,upn)
+        function upn=update_split_quadratic(self,upc,upn)
             Nsplit = self.tree.Ns;
             if 2*Nsplit >= upc*upn*(upn+1)
 
-                self.info('\tHyperparameter update (n=%d).',upn);
+                self.info('\tHyperparameter update (nsplit=%d).',upn);
                 self.srgt.gp_update();
                 upn = dk.math.nextint( (sqrt(1+8*Nsplit/upc)-1)/2 );
                 self.notify( 'PostUpdate' );
@@ -308,6 +369,19 @@ classdef GPSO_dev < handle
                 fprintf( [fmt '\n'], varargin{:} );
             end
         end
+        
+    end
+    
+    
+    
+    
+        
+    %% RUNTIME BREAKDOWN
+    %
+    %
+    methods (Hidden,Access=private)
+        
+        
         
         function initialise(self,domain,objfun)
             
@@ -529,7 +603,7 @@ end
 %
 % k+1:      =---g---=---x---=---d---=
 %          /        |       |        \
-%        Tmin     Gmax     Dmin      Tmax
+%        Tmin     Gmax     Dmin     Tmax
 %
 
 function [g,d,x,s] = split_largest_dimension(T,k,x)
@@ -564,21 +638,5 @@ function U = split_tree(T,k,g,d,x,s)
     U.coord = [g;d;x];
     U.lower = [Tmin;Dmin;Xmin];
     U.upper = [Gmax;Tmax;Xmax];
-
-end
-
-function points = hyperface_pyramid(D)
-%
-% Returns the coordinates of the centre of the pyramids associated with each face 
-% in a hypercube of dimension D. The centre of the hypercube itself is appended to
-% the results. In total, this function outputs 2D+1 points.
-%
-% JH
-    
-    points = [ ...
-        0.5*ones(D) - 0.25*eye(D); ...
-        0.5*ones(D) + 0.25*eye(D); ...
-    	0.5*ones(1,D) ...
-    ];
 
 end

@@ -439,7 +439,7 @@ classdef GPSO < handle
             M1 = @(i) Ng + 2*Ni; % constant with depth
             M2 = @(i) Ng + 2*(Ni+i-1); % linear increase with depth
             M3 = @(i) Ng + 2*(Ni+i*(i-1)/2); % quadratic increase with depth
-            varsigma = @(i) self.srgt.GP.varsigma(M2(i));
+            varsigma = @(i) self.srgt.varsigma(M2(i));
             
             for h = 1:depth
             if i_max(h) > 0

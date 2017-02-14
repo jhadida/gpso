@@ -243,7 +243,8 @@ classdef GP_Surrogate < handle
         function self=gp_check(self)
 
             % make sure GP is set
-            assert( isfield(self.GP,'varsigma'), 'GP has not been configured yet (see method gpconf).' );
+            assert( isfield(self.GP,'hyp'), 'GP has not been configured yet (see set_gp).' );
+            assert( isa(self.varsigma,'function_handle'), 'Varsigma has not been set yet (see set_varsisgma*).' );
             
             % make sure GPML is on the path
             if isempty(which('gp'))

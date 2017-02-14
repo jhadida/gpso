@@ -22,6 +22,10 @@ classdef GPSO_Tree < handle
         end
         
         function self=init(self,ndim,samp)
+        %
+        % ndim: dimensionality of search space
+        % samp: storage index of tree root (centre of hyperdomain)
+        % 
             
             if nargin < 3, samp=1; end
             
