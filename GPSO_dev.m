@@ -60,7 +60,7 @@ classdef GPSO_dev < handle
             
             self.srgt.gpconf( hyp, meanfunc, covfunc );
             self.srgt.gp_varsigma_const( varsigma );
-            
+
         end
         
         function out = run( self, objfun, domain, Nmax, upc, verb )
@@ -411,7 +411,7 @@ classdef GPSO_dev < handle
                     end
                     
                     kmax = k_max(h);
-                    if (kmax > 0) && self.srgt.gp_based(kmax)
+                    if (kmax > 0) && self.srgt.is_gp_based(kmax)
                         self.info('\t\t[h=%02d] Sampling GP-based leaf %d with UCB %g',h,kmax,v_max);
                         self.srgt.update( kmax, objfun(self.srgt.coord(kmax,true)) );
                         upucb = true;

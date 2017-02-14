@@ -4,6 +4,7 @@ classdef GP_Surrogate < handle
         x; % sample coordinates
         y; % data array with columns [mu,sigma,ucb]
         GP; % GP parameters
+        varsigma; % controls optimism in the face of uncertainty
         
         lower;
         upper;
@@ -27,18 +28,15 @@ classdef GP_Surrogate < handle
             self.x = [];
             self.y = [];
             self.GP = struct();
+            self.varsigma = nan;
             self.lower = [];
             self.upper = [];
             self.Ne = 0;
             self.Ng = 0;
         end
         
-        % dependent properties
-        function n = get.Ns(self), n = size(self.x,1); end
-        function n = get.Nd(self), n = size(self.x,2); end
-        function d = get.delta(self), d = self.upper-self.lower; end
-        
-        function self=gpconf(self, hyp, meanfunc, covfunc)
+        % setters
+        function self=set_gp(self, hyp, meanfunc, covfunc)
             
             gp.hyp = hyp;
             gp.likfunc = @likGauss; % Gaussian likelihood is assumed for analytics
@@ -49,15 +47,20 @@ classdef GP_Surrogate < handle
             
         end
         
-        function gp_varsigma_paper(self,eta)
+        function self=set_varsigma_paper(self,eta)
             % JH: original varsigma can be complex for M=1 and eta=1
-            self.GP.varsigma = @(M) sqrt(max( 0, 4*log(pi*M) - 2*log(12*eta) )); % cf Lemma 1
+            self.varsigma = @(M) sqrt(max( 0, 4*log(pi*M) - 2*log(12*eta) )); % cf Lemma 1
+        end        
+        function self=set_varsigma_const(self,val)
+            self.varsigma = @(M) val;
         end
         
-        function gp_varsigma_const(self,val)
-            self.GP.varsigma = @(M) val;
-        end
+        % dependent properties
+        function n = get.Ns(self), n = size(self.x,1); end
+        function n = get.Nd(self), n = size(self.x,2); end
+        function d = get.delta(self), d = self.upper-self.lower; end
         
+        % initialisation
         function self=init(self,domain)
             
             assert( ismatrix(domain) && ~isempty(domain) && ... 
@@ -165,7 +168,7 @@ classdef GP_Surrogate < handle
     
     methods
         
-        % named access to y's columns
+        % access y's columns
         function y = ycol(self,c,k)
             if nargin > 2
                 y = self.y(k,c);
@@ -174,6 +177,8 @@ classdef GP_Surrogate < handle
             end
         end
         
+        % aliases to y's columns
+        % if called without index, returns the whole column
         function m = mu(self,varargin), m = self.ycol(1,varargin{:}); end
         function s = sigma(self,varargin), s = self.ycol(2,varargin{:}); end
         function u = ucb(self,varargin), u = self.ycol(3,varargin{:}); end
@@ -188,7 +193,7 @@ classdef GP_Surrogate < handle
         end
         
         % is GP-based
-        function g = gp_based(self,varargin)
+        function g = is_gp_based(self,varargin)
             g = self.sigma(varargin{:}) > 0;
         end
         
@@ -230,12 +235,12 @@ classdef GP_Surrogate < handle
         % UCB update
         function self=ucb_update(self)
             if self.Ng > 0
-                self.y(:,3) = self.y(:,1) + self.GP.varsigma(self.Ng) * self.y(:,2);
+                self.y(:,3) = self.y(:,1) + self.varsigma(self.Ng) * self.y(:,2);
             end
         end
         
         % check a few things before calling gp
-        function gp_check(self)
+        function self=gp_check(self)
 
             % make sure GP is set
             assert( isfield(self.GP,'varsigma'), 'GP has not been configured yet (see method gpconf).' );
