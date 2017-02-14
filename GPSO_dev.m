@@ -58,8 +58,8 @@ classdef GPSO_dev < handle
             hyp.lik  = log(sigma); 
             hyp.cov  = log([ell; sf]); 
             
-            self.srgt.gpconf( hyp, meanfunc, covfunc );
-            self.srgt.gp_varsigma_const( varsigma );
+            self.srgt.set_gp( hyp, meanfunc, covfunc );
+            self.srgt.set_varsigma_const( varsigma );
 
         end
         
