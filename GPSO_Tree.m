@@ -21,19 +21,19 @@ classdef GPSO_Tree < handle
             self.Ns = 0;
         end
         
-        function self=init(self,ndim,samp)
+        function self=init(self,ndim,root)
         %
         % ndim: dimensionality of search space
         % samp: storage index of tree root (centre of hyperdomain)
         % 
             
-            if nargin < 3, samp=1; end
+            if nargin < 3, root=1; end
             
             % initialise tree
             T.parent = [0,1];
             T.lower  = zeros(1,ndim);
             T.upper  = ones(1,ndim);
-            T.samp   = samp;
+            T.samp   = root;
             T.leaf   = true;
             
             self.level = T;

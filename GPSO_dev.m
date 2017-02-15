@@ -76,7 +76,7 @@ classdef GPSO_dev < handle
 
         end
         
-        function out = run( self, objfun, domain, Nmax, upc, verb )
+        function out = run( self, objfun, domain, Neval, upc, verb )
         %
         % objfun:
         %   Function handle taking a candidate sample and returning a scalar.
@@ -86,15 +86,14 @@ classdef GPSO_dev < handle
         % domain:
         %   Ndim x 2 matrix specifying the boundaries of the hypercube.
         %
-        % Nmax:
+        % Neval:
         %   Maximum number of function evaluation.
         %   This can be considered as a "budget" for the optimisation.
         %   Note that the actual number of evaluations can exceed this value (usually not by much).
         %
         % upc: default 2*Ndims
         %   Update constant for GP hyperparameters.
-        %   Hyperparameter updates will occur after number of splits:
-        %       upc*n*(n+1)/2   for   n=1,2...
+        %   See function update_gp for currently selected method.
         %
         % verb: default true
         %   Verbose switch.
@@ -108,36 +107,34 @@ classdef GPSO_dev < handle
             if nargin < 6, verb=true; end
             if nargin < 5 || isempty(upc), upc=2*Ndim; end
             
-            assert( dk.is.integer(Nmax) && Nmax>1, 'Nmax should be >1.' );
-            assert( dk.is.number(upc) && upc>1, 'upc should be >1.' );
-            assert( isscalar(verb) && islogical(verb), 'verb should be boolean.' );
+            dk.assert( dk.is.integer(Neval) && Neval>2*Ndim, 'Neval should be >%d.', 2*Ndim );
+            dk.assert( dk.is.number(upc) && upc>1, 'upc should be >1.' );
+            dk.assert( isscalar(verb) && islogical(verb), 'verb should be boolean.' );
             
+            tstart = tic;
             self.iter = {};
             self.verb = verb;
             
             % initialisation
-            self.info( 'Starting %d-dimensional optimisation, with a budget of %d evaluations...', Ndim, Nmax );
+            self.info( 'Starting %d-dimensional optimisation, with a budget of %d evaluations...', Ndim, Neval );
             self.initialise( domain, objfun );
             self.notify( 'PostInitialise' );
             
             % iterate
-            LB = self.srgt.best_score();
-            XI = 1;
-            upn = 1;
-            tstart = tic;
-            XI_max = self.max_search_depth();
+            best = self.srgt.best_score();
+            upn = self.srgt.Ne;
             
             gpml_start();
-            while self.srgt.Ne < Nmax
+            while self.srgt.Ne < Neval
                 
                 self.info('\n\t------------------------------ Elapsed time: %s', dk.time.sec2str(toc(tstart)) );
                 self.info('\tIteration #%d (depth: %d, neval: %d, score: %g)', ...
-                    self.Niter, self.tree.depth, self.srgt.Ne, LB );
+                    self.Niter, self.tree.depth, self.srgt.Ne, best );
                 
                 % run steps
-                LB = self.step_1(LB,objfun);
+                best = self.step_1(best,objfun);
                 [i_max,k_max,g_max] = self.step_2(objfun);
-                [i_max,k_max] = self.step_3(i_max,k_max,g_max,XI);
+                [i_max,k_max] = self.step_3(i_max,k_max,g_max);
                 
                 if any(i_max)
                     self.step_4(i_max,k_max); 
@@ -146,22 +143,11 @@ classdef GPSO_dev < handle
                     break;
                 end
                 
-                % update lower bound
-                LB_old = LB;
-                LB = self.srgt.best_score();
-                
                 % update iteration data
-                self.iter{end+1} = [XI, nnz(i_max), LB];
-                
-                % update XI (line 38)
-                if LB_old == LB
-                    XI = max( 1, XI - 2^-1 );
-                else
-                    XI = min( XI_max, XI + 2^2 );
-                end
+                self.iter{end+1} = [nnz(i_max), best];
                 
                 % update GP hyper parameters
-                upn=self.update_quadratic(upc,upn);
+                upn=self.update_gp(upc,upn);
                 self.notify( 'PostIteration' );
                 
             end
@@ -309,12 +295,12 @@ classdef GPSO_dev < handle
     %
     methods (Hidden,Access=private)
         
-        % facade method
+        % facade method for hyperparameter update
         function upn=update_gp(self,upc,upn)
             upn = self.update_samp_linear(upc,upn);
         end
         
-        % keeping tabs on number of evaluated samples
+        % keeping tabs on number of evaluated samples ..
         function upn=update_samp_linear(self,upc,upn)
             Ne = self.srgt.Ne;
             if (Ne-upn) >= upc
@@ -327,7 +313,7 @@ classdef GPSO_dev < handle
             end
         end
         
-        % keeping tabs on number of node split
+        % .. or on number of node splits
         function upn=update_split_linear(self,upc,upn)
             Nsplit = self.tree.Ns;
             if Nsplit >= upc*upn
@@ -352,18 +338,7 @@ classdef GPSO_dev < handle
             end
         end
         
-        function XI_max = max_search_depth(self)
-            switch floor(self.srgt.Nd/10)
-                case 0 % below 10
-                    XI_max = 8;
-                case 1 % below 20
-                    XI_max = 5;
-                otherwise % 20 and more
-                    XI_max = 3;
-            end
-        end
-        
-        % print messages
+        % print formatted messages
         function info(self,fmt,varargin)
             if self.verb
                 fprintf( [fmt '\n'], varargin{:} );
@@ -381,8 +356,6 @@ classdef GPSO_dev < handle
     %
     methods (Hidden,Access=private)
         
-        
-        
         function initialise(self,domain,objfun)
             
             % initialise surrogate
@@ -390,16 +363,17 @@ classdef GPSO_dev < handle
             nd = self.srgt.Nd;
             nx = 2*nd+1;
             
-            Xinit = [ ...
-                0.5*ones(nd) - 0.25*eye(nd); ...
-                0.5*ones(nd) + 0.25*eye(nd); ...
-                0.5*ones(1,nd) ...
+            Xinit = 0.5 + [ ...
+                -0.25*eye(nd); ...
+                +0.25*eye(nd); ...
+                zeros(1,nd) ...
             ]; 
             Finit = nan(np,1);
             for k = 1:nx
                 Finit(k) = objfun(self.srgt.denormalise(Xinit(k,:)));
             end
             self.srgt.append( Xinit, Finit );
+            self.srgt.gp_update();
             
             % initialise tree
             self.tree.init(nd,nx);
@@ -420,7 +394,7 @@ classdef GPSO_dev < handle
             
         end
         
-        function LB = step_1(self,LB,objfun)
+        function best = step_1(self,best,objfun)
             
             self.info('\tStep 1:');
             
@@ -428,11 +402,11 @@ classdef GPSO_dev < handle
             self.info('\t\tUpdate UCB.');
             self.srgt.ucb_update();
             
-            % find leaves with UCB > LB 
+            % find leaves with UCB > best 
             % NOTES: 
-            % 1. we know these are GP-based, if any, because LB is updated before each iteration
+            % 1. we know these are GP-based, if any, because best is updated before each iteration
             % 2. there are no non-leaf GP-based nodes, because of step 2
-            k = find( self.srgt.ucb > LB ); 
+            k = find( self.srgt.ucb > best ); 
             n = numel(k);
             
             % evaluate those samples and update UCB again
@@ -445,8 +419,8 @@ classdef GPSO_dev < handle
                 end
                 self.srgt.update( k, f, 0 );
                 self.srgt.ucb_update();
-                LB = max([ LB; f ]);
-                self.info('\t\tNew best score is: %g',LB);
+                best = max([ best; f ]);
+                self.info('\t\tNew best score is: %g',best);
             end
             
         end
@@ -510,63 +484,11 @@ classdef GPSO_dev < handle
             
         end
         
-        function [i_max,k_max] = step_3(self,i_max,k_max,g_max,XI)
-            
-            self.info('\tStep 3:');
-            depth = self.tree.depth; 
-            upucb = false;
-            
-            % number of UCB that would be used if the current number of selected leaves were split
-            Ng = self.srgt.Ng;
-            Ni = nnz(i_max);
-            
-            M1 = @(i) Ng + 2*Ni; % constant with depth
-            M2 = @(i) Ng + 2*(Ni+i-1); % linear increase with depth
-            M3 = @(i) Ng + 2*(Ni+i*(i-1)/2); % quadratic increase with depth
-            varsigma = @(i) self.srgt.GP.varsigma(M2(i));
-            
-            for h = 1:depth
-            if i_max(h) > 0
-                
-                % Search depth:
-                %   - cannot be deeper than the tree (duh), 
-                %   - is bounded by XI_max.
-                sdepth = 0;
-                h2_max = min( depth, ceil(h+XI) );
-                for h2 = (h+1) : h2_max 
-                    if i_max(h2) > 0
-                        sdepth = h2 - h; break;
-                    end
-                end
-                if sdepth == 0, continue; end
-                
-                % Find out whether any downstream interval has a UCB greater than 
-                % currently best known score at matched depth.
-                %
-                % Do this by artificially expanding the GP tree and using GP-UCB
-                % to compute expected scores.
-                until = g_max(h+sdepth);
-                z_max = self.explore( [h,i_max(h)], sdepth, varsigma, until );
-                z_max = z_max(3); % take only UCB
-                
-                % If none of the downstream intervals has an "interesting" score, ignore it for this iteration.
-                if z_max < until
-                    i_max(h) = 0; 
-                    k_max(h) = 0;
-                    self.info('\t\t[h=%02d,search=%d] Drop selection (expected=%g < known=%g)',h,sdepth,z_max,until);
-                else
-                    self.info('\t\t[h=%02d,search=%d] Maintain selection with expected score %g',h,sdepth,z_max);
-                end
-                
-            end % if
-            end % for
-            
-        end
-        
-        function step_4(self,i_max,k_max)
+        function step_3(self,i_max,k_max,Nsamp)
             
             self.info('\tStep 4:');
             depth = self.tree.depth;
+            varsigma = self.srgt.varsigma;
             
             for h = 1:depth
             if i_max(h) > 0
@@ -576,13 +498,17 @@ classdef GPSO_dev < handle
                 
                 % Split leaf along largest dimension
                 [g,d,x,s] = split_largest_dimension( self.tree.level(h), imax, self.srgt.coord(kmax) );
-                
-                % Compute extents of new intervals
                 U = split_tree( self.tree.level(h), imax, g, d, x, s );
-                [mu,sigma] = self.srgt.gp_call( [g;d] );
-                k = self.srgt.append( [g;d], mu, sigma, true );
+                Uget = @(n) struct( 'lower', U.lower(n,:), 'upper', U.upper(n,:) );
                 
-                % Commit split to tree member
+                % Explore each new leaf with a uniform sample
+                best_g = self.explore_samp( Uget(1), Nsamp, varsigma );
+                best_d = self.explore_samp( Uget(2), Nsamp, varsigma );
+                best_x = self.explore_samp( Uget(3), Nsamp, 0 );
+                
+                % Append points and update tree
+                k = self.srgt.append( [g;d], [best_g(1);best_d(1)], [best_g(2);best_d(2)], true );
+                self.srgt.update( kmax, best_x(1), 0 );
                 self.tree.split( [h,imax], U.lower, U.upper, [k,kmax] );
                 self.info('\t\t[h=%02d] Split dimension %d of leaf %d',h,s,imax);
                 

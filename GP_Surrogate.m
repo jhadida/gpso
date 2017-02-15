@@ -91,7 +91,7 @@ classdef GP_Surrogate < handle
         % WARNING: by default, assumes x is NORMALISED
         function k=append(self,x,m,s,isnorm)
             
-            n = numel(m);
+            n = numel(m); % number of input samples
             if nargin < 4, s=zeros(n,1); end
             if nargin < 5, isnorm=true; end
             
@@ -99,12 +99,11 @@ classdef GP_Surrogate < handle
             assert( size(x,1)==n && numel(s)==n, 'Size mismatch.' );
             assert( all(s >= 0), 'Sigma should be non-negative.' );
             
-            k = self.Ns + (1:n);
-            if ~isnorm, x = self.normalise(x); end
-            
+            k = self.Ns + (1:n); % index of new samples
             m = m(:);
             s = s(:);
             
+            if ~isnorm, x = self.normalise(x); end
             self.x = [self.x; x ];
             self.y = [self.y; [m,s,m] ];
             
@@ -118,7 +117,7 @@ classdef GP_Surrogate < handle
         function self=update(self,k,m,s)
             
             n = numel(k);
-            if nargin < 4, s=0; end
+            if nargin < 4, s=zeros(n,1); end
             
             if isscalar(s) && n>1, s=s*ones(n,1); end
             assert( numel(m)==n, 'Size mismatch.' );
@@ -235,7 +234,8 @@ classdef GP_Surrogate < handle
         % UCB update
         function self=ucb_update(self)
             if self.Ng > 0
-                self.y(:,3) = self.y(:,1) + self.varsigma(self.Ng) * self.y(:,2);
+                k = self.find_gp_based();
+                self.y(k,3) = self.y(k,1) + self.varsigma(self.Ng) * self.y(k,2);
             end
         end
         
@@ -291,6 +291,14 @@ classdef GP_Surrogate < handle
             
             % don't allow sigma to become too small
             self.GP.hyp.lik = max( self.GP.hyp.lik, -15 );
+            
+            % re-evaluate all gp-based samples
+            if self.Ng > 0
+                
+                k = self.find_gp_based();
+                [m,s] = self.gp_call( self.x(k,:) );
+                
+            end
             
         end
         
