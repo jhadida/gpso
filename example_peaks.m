@@ -10,14 +10,13 @@ function obj = example_peaks( nmax, xdom, ydom )
 %
 % JH
 
-    FOLDER = '/Users/jhadida/Desktop/RESEARCH/presentation/170203/gp_fail';
-
     if nargin < 2, xdom=[-3 3 100]; end
     if nargin < 3, ydom=xdom; end
 
     % optimiser and listener
     obj = GPSO().configure();
     obj.addlistener( 'PostIteration', @callback );
+    obj.addlistener( 'Special', @callback );
     
     % generate reference surface
     nx = xdom(3);
@@ -26,14 +25,17 @@ function obj = example_peaks( nmax, xdom, ydom )
     gy = linspace( ydom(1), ydom(2), ny );
     [gx,gy] = meshgrid( gx, gy );
     
+    itc = -1;
     ref = objfun( gx, gy );
     grd = [gx(:),gy(:)];
     scl = [nx,ny];
     
     % run optimisation
-    figure; dk.ui.fig.resize(gcf,[500,1100]);
+    figure(1); clf; colormap('jet'); dk.ui.fig.resize(gcf,[700,800]);
+    figure(2); clf; colormap('jet'); dk.ui.fig.resize(gcf,[700,800]);
+    %figure; dk.ui.fig.resize(gcf,[500,1100]);
     domain = [ xdom(1:2); ydom(1:2) ];
-    obj.run( @objfun, domain, nmax );
+    obj.run( @objfun, domain, nmax, 30 );
 
     % callback function
     function callback( src, edata )
@@ -47,8 +49,12 @@ function obj = example_peaks( nmax, xdom, ydom )
         
         draw_surrogate( ref, mu, sigma );
         draw_tree( tree, scl );
-        draw_samples(bsxfun( @times, srgt.samp_evaluated, scl )); pause(0.5);
-        %drawnow; dk.ui.fig.print( gcf, fullfile(FOLDER,'iter_%02d'), src.Niter );
+        draw_samples(bsxfun( @times, srgt.samp_evaluated, scl )); drawnow; pause(0.5);
+        
+        itc = itc+1;
+%         if ismember(itc,[0,1,2,3,4,5,10,11,12])
+%             exportfig( [1 2], '/Users/jhadida/Documents/dphil/papers/paper1/fig/gpso', sprintf('iter_%02d_f%%d.png',itc) );
+%         end
     end
     
 end
@@ -59,6 +65,16 @@ function z = objfun(x,y)
         y = x(2);
         x = x(1);
     end
+    
+    % rotation
+    ct = cos(pi/4);
+    st = sin(pi/4);
+    
+    xn = ct*x + st*y;
+    yn = ct*y - st*x;
+    
+    x = xn;
+    y = yn;
     z =  3*(1-x).^2.*exp(-(x.^2) - (y+1).^2) ...
         - 10*(x/5 - x.^3 - y.^5).*exp(-x.^2-y.^2) ...
         - 1/3*exp(-(x+1).^2 - y.^2);
@@ -66,20 +82,23 @@ function z = objfun(x,y)
 end
 
 function draw_surrogate(r,m,s)
-    colormap('jet');
-
-    subplot(1,2,1);
-    imagesc(r); caxis([-8 8]); colorbar; 
-    set(gca,'YDir','normal');
     
-    subplot(1,2,2)
+    figure(1); %subplot(1,2,1); 
+    imagesc(r); caxis([-8 8]); c=colorbar; 
+    c.Label.String = 'Objective Function';
+    set(gca,'YDir','normal');
+    title('Partition of Search Space');
+    
+    figure(2); %subplot(1,2,2)
     surf(m+s,r-m); 
-    caxis([-8 8]); colorbar; 
-    axis tight;
+    caxis([-8 8]); c=colorbar; 
+    c.Label.String = '(Objective - Surrogate)';
+    axis vis3d; title('Surrogate Function');
+    
 end
 
 function draw_tree(T,s)
-    subplot(1,2,1);
+    figure(1); %subplot(1,2,1);
     hold on; d=T.depth;
     for h = 1:d
         L = find(T.level(h).leaf);
@@ -97,14 +116,13 @@ end
 function draw_rectangle(xmin,xmax)
     x = [xmin(1),xmin(1),xmax(1),xmax(1),xmin(1)];
     y = [xmin(2),xmax(2),xmax(2),xmin(2),xmin(2)];
-    z = 0.1*ones(1,5);
-    %plot3(x,y,z,'k-');
     plot(x,y,'k-');
 end
 
 function draw_samples(X)
-    hold on; n = size(X,1);
-    %plot3(X(:,1),X(:,2),0.1*ones(n,1),'r*');
-    plot(X(:,1),X(:,2),'r*');
+    hold on; 
+    h2 = plot( X(1:4,1), X(1:4,2), 'kp' );
+    h1 = plot( X(5:end,1), X(5:end,2), 'k*', 'MarkerSize', 8 );
     hold off;
+    legend([h1,h2],'Evaluated Points','L1-ball vertices');
 end

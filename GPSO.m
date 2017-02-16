@@ -12,6 +12,7 @@ classdef GPSO < handle
     end
     
     events
+        Special
         PostInitialise
         PostIteration
         PostUpdate
@@ -57,8 +58,8 @@ classdef GPSO < handle
         %
         % JH
             
-            if nargin < 2, sigma = 1e-4; end
-            if nargin < 3, varsigma = 3; end 
+            if nargin < 2, sigma = 1e-3; end
+            if nargin < 3, varsigma = erfcinv(0.005); end 
             
             meanfunc = @meanConst; hyp.mean = 0;
             covfunc  = {@covMaterniso, 5}; % isotropic Matern covariance 
@@ -105,11 +106,11 @@ classdef GPSO < handle
         
             Ndim = size(domain,1);
             if nargin < 7, verb=true; end
-            if nargin < 6 || isempty(upc), upc=2*Ndim; end
-            if nargin < 5 || isempty(Nsamp), Nsamp=2*Ndim^2; end
+            if nargin < 6 || isempty(upc), upc=1; end
+            if nargin < 5 || isempty(Nsamp), Nsamp=3*Ndim^2; end
             
             dk.assert( dk.is.integer(Neval) && Neval>2*Ndim, 'Neval should be >%d.', 2*Ndim );
-            dk.assert( dk.is.number(upc) && upc>1, 'upc should be >1.' );
+            dk.assert( dk.is.number(upc) && upc>0, 'upc should be >0.' );
             dk.assert( isscalar(verb) && islogical(verb), 'verb should be boolean.' );
             
             tstart = tic;
@@ -122,21 +123,29 @@ classdef GPSO < handle
             self.notify( 'PostInitialise' );
             
             % iterate
+            best = self.srgt.best_score();
             upn = self.srgt.Ne;
+            special = true;
+            
             gpml_start();
             while self.srgt.Ne < Neval
-                
-                % update best score and hyperparameters
-                best = self.srgt.best_score();
-                upn = self.update_gp(upc,upn);
                 
                 self.info('\n\t------------------------------ Elapsed time: %s', dk.time.sec2str(toc(tstart)) );
                 self.info('\tIteration #%d (depth: %d, neval: %d, score: %g)', ...
                     self.Niter, self.tree.depth, self.srgt.Ne, best );
                 
-                self.step_1(i_max,k_max,Nsamp);
-                [i_max,k_max] = self.step_2(objfun);
+                upn = self.step_update(upc,upn);
+                
+                if special
+                    special = false;
+                    self.notify('Special');
+                end
+                
+                self.step_explore(i_max,k_max,Nsamp);
+                [i_max,k_max] = self.step_select(objfun);
+                
                 Nselect = nnz(i_max);
+                best = self.srgt.best_score();
                 
                 if Nselect == 0
                     warning( 'No remaining leaf after step 3, aborting.' );
@@ -292,11 +301,6 @@ classdef GPSO < handle
     %
     methods (Hidden,Access=private)
         
-        % facade method for hyperparameter update
-        function upn=update_gp(self,upc,upn)
-            upn = self.update_samp_linear(upc,upn);
-        end
-        
         % keeping tabs on number of evaluated samples ..
         function upn=update_samp_linear(self,upc,upn)
             Ne = self.srgt.Ne;
@@ -396,7 +400,13 @@ classdef GPSO < handle
             
         end
         
-        function step_1(self,i_max,k_max,Nsamp)
+        % facade method for hyperparameter update
+        function upn = step_update(self,upc,upn)
+            upn = self.update_samp_linear(upc,upn);
+        end
+        
+        % exploration step: split and sample
+        function step_explore(self,i_max,k_max,Nsamp)
             
             self.info('\tStep 1:');
             depth = self.tree.depth;
@@ -430,7 +440,8 @@ classdef GPSO < handle
             
         end
         
-        function [i_max,k_max] = step_2(self,objfun)
+        % selection step: select and evaluate
+        function [i_max,k_max] = step_select(self,objfun)
             
             self.info('\tStep 2:');
             depth = self.tree.depth;
