@@ -42,11 +42,12 @@ function obj = example_peaks( nmax, xdom, ydom )
         srgt = src.srgt;
         
         [mu,sigma] = srgt.surrogate(grd);
-        sur = reshape( mu + sigma, size(ref) );
+        mu = reshape( mu, size(ref) );
+        sigma = reshape( sigma, size(ref) );
         
-        draw_surrogate( ref, sur );
+        draw_surrogate( ref, mu, sigma );
         draw_tree( tree, scl );
-        draw_samples(bsxfun( @times, srgt.samp_evaluated, scl )); pause(0.8);
+        draw_samples(bsxfun( @times, srgt.samp_evaluated, scl )); pause(0.5);
         %drawnow; dk.ui.fig.print( gcf, fullfile(FOLDER,'iter_%02d'), src.Niter );
     end
     
@@ -64,7 +65,7 @@ function z = objfun(x,y)
 
 end
 
-function draw_surrogate(r,s)
+function draw_surrogate(r,m,s)
     colormap('jet');
 
     subplot(1,2,1);
@@ -72,7 +73,7 @@ function draw_surrogate(r,s)
     set(gca,'YDir','normal');
     
     subplot(1,2,2)
-    surf(s,r-s); 
+    surf(m+s,r-m); 
     caxis([-8 8]); colorbar; 
     axis tight;
 end

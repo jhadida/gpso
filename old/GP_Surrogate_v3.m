@@ -96,7 +96,30 @@ classdef GP_Surrogate < handle
         
         % append new samples
         % WARNING: by default, assumes x is NORMALISED
-        function k = append(self,x,y,isnorm)
+        function k=append(self,x,m,s,isnorm)
+            
+            n = numel(m); % number of input samples
+            if nargin < 4, s=zeros(n,1); end
+            if nargin < 5, isnorm=true; end
+            
+            if isscalar(s) && n>1, s=s*ones(n,1); end
+            assert( size(x,1)==n && numel(s)==n, 'Size mismatch.' );
+            assert( all(s >= 0), 'Sigma should be non-negative.' );
+            
+            k = self.Ns + (1:n); % index of new samples
+            m = m(:);
+            s = s(:);
+            
+            if ~isnorm, x = self.normalise(x); end
+            self.x = [self.x; x ];
+            self.y = [self.y; [m,s,m] ];
+            
+            g = nnz(s);
+            self.Ng = self.Ng + g;
+            self.Ne = self.Ne + n-g;
+            
+        end
+        function k = append2(self,x,y,isnorm)
             
             n = size(x,1); 
             if nargin < 4, isnorm=true; end
@@ -115,7 +138,28 @@ classdef GP_Surrogate < handle
         end
         
         % update sample score
-        function self=update(self,k,y)
+        function self=update(self,k,m,s)
+            
+            n = numel(k);
+            if nargin < 4, s=zeros(n,1); end
+            
+            if isscalar(s) && n>1, s=s*ones(n,1); end
+            assert( numel(m)==n, 'Size mismatch.' );
+            assert( numel(s)==n, 'Size mismatch.' );
+            
+            m = m(:);
+            s = s(:);
+            
+            g1 = nnz(self.y(k,2));
+            g2 = nnz(s);
+            
+            self.y(k,:) = [m,s,m];
+            
+            self.Ne = self.Ne + g1-g2;
+            self.Ng = self.Ng + g2-g1;
+            
+        end
+        function self=update2(self,k,y)
             g1 = nnz(self.y(k,2));
             g2 = nnz(y(:,2));
             
