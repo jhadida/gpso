@@ -12,7 +12,6 @@ classdef GPSO < handle
     end
     
     events
-        Special
         PostInitialise
         PostIteration
         PostUpdate
@@ -125,7 +124,6 @@ classdef GPSO < handle
             % iterate
             best = self.srgt.best_score();
             upn = self.srgt.Ne;
-            special = true;
             
             gpml_start();
             while self.srgt.Ne < Neval
@@ -135,12 +133,6 @@ classdef GPSO < handle
                     self.Niter, self.tree.depth, self.srgt.Ne, best );
                 
                 upn = self.step_update(upc,upn);
-                
-                if special
-                    special = false;
-                    self.notify('Special');
-                end
-                
                 self.step_explore(i_max,k_max,Nsamp);
                 [i_max,k_max] = self.step_select(objfun);
                 

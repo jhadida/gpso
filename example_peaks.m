@@ -16,7 +16,6 @@ function obj = example_peaks( nmax, xdom, ydom )
     % optimiser and listener
     obj = GPSO().configure();
     obj.addlistener( 'PostIteration', @callback );
-    obj.addlistener( 'Special', @callback );
     
     % generate reference surface
     nx = xdom(3);
@@ -52,9 +51,7 @@ function obj = example_peaks( nmax, xdom, ydom )
         draw_samples(bsxfun( @times, srgt.samp_evaluated, scl )); drawnow; pause(0.5);
         
         itc = itc+1;
-%         if ismember(itc,[0,1,2,3,4,5,10,11,12])
-%             exportfig( [1 2], '/Users/jhadida/Documents/dphil/papers/paper1/fig/gpso', sprintf('iter_%02d_f%%d.png',itc) );
-%         end
+        %exportfig( [1 2], '/Users/jhadida/Desktop/IMG/gpso', sprintf('iter_%02d_f%%d.png',itc) );
     end
     
 end
@@ -125,4 +122,12 @@ function draw_samples(X)
     h1 = plot( X(5:end,1), X(5:end,2), 'k*', 'MarkerSize', 8 );
     hold off;
     legend([h1,h2],'Evaluated Points','L1-ball vertices');
+end
+
+function exportfig( fig_id, folder, nametpl )
+    
+    for f = fig_id
+        dk.ui.fig.export(figure(f),fullfile(folder,sprintf(nametpl,f)),'normal');
+    end
+
 end
