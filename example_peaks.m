@@ -10,6 +10,10 @@ function obj = example_peaks( nmax, xdom, ydom )
 %
 % JH
 
+    global PAPER_MODE;
+    PAPER_MODE=false;
+    NEXPLORE=30;
+
     if nargin < 2, xdom=[-3 3 100]; end
     if nargin < 3, ydom=xdom; end
 
@@ -24,17 +28,19 @@ function obj = example_peaks( nmax, xdom, ydom )
     gy = linspace( ydom(1), ydom(2), ny );
     [gx,gy] = meshgrid( gx, gy );
     
-    itc = -1;
     ref = objfun( gx, gy );
     grd = [gx(:),gy(:)];
     scl = [nx,ny];
     
     % run optimisation
-    figure(1); clf; colormap('jet'); dk.ui.fig.resize(gcf,[700,800]);
-    figure(2); clf; colormap('jet'); dk.ui.fig.resize(gcf,[700,800]);
-    %figure; dk.ui.fig.resize(gcf,[500,1100]);
+    if PAPER_MODE
+        figure(1); clf; colormap('jet'); dk.ui.fig.resize(gcf,[700,800]);
+        figure(2); clf; colormap('jet'); dk.ui.fig.resize(gcf,[700,800]);
+    else
+        figure; colormap('jet'); dk.ui.fig.resize(gcf,[500,1100]);
+    end
     domain = [ xdom(1:2); ydom(1:2) ];
-    obj.run( @objfun, domain, nmax, 30 );
+    obj.run( @objfun, domain, nmax, NEXPLORE );
 
     % callback function
     function callback( src, edata )
@@ -45,57 +51,94 @@ function obj = example_peaks( nmax, xdom, ydom )
         [mu,sigma] = srgt.surrogate(grd);
         mu = reshape( mu, size(ref) );
         sigma = reshape( sigma, size(ref) );
+        varsigma = src.srgt.get_varsigma();
         
-        draw_surrogate( ref, mu, sigma );
+        draw_surrogate( ref, mu, sigma, varsigma );
         draw_tree( tree, scl );
-        draw_samples(bsxfun( @times, srgt.samp_evaluated, scl )); drawnow; pause(0.5);
+        draw_samples(bsxfun( @times, srgt.samp_evaluated, scl )); 
+        drawnow; pause(0.5);
         
-        itc = itc+1;
-        %exportfig( [1 2], '/Users/jhadida/Desktop/IMG/gpso', sprintf('iter_%02d_f%%d.png',itc) );
+        if PAPER_MODE
+            exportfig( [1 2], '/Users/jhadida/Desktop/IMG/gpso/paper_v4', sprintf('iter_%02d_f%%d.png',src.Niter) );
+        end
+    end
+
+    % show axis on separate figure
+    if PAPER_MODE
+        figure; colormap(jet); n = 1024;
+        imagesc((0:n)'); grid off; box off;
+        ytl = dk.arrayfun( @num2str, -8:2:8, false );
+        set(gca,'xtick',[],'ytick',linspace(5,n-5,numel(ytl)),'yticklabel',ytl,'yaxislocation','right','ydir','normal');
+        ylabel( 'Objective Function' ); 
+        dk.ui.fig.resize( gcf, [800 100] );
     end
     
 end
 
 function z = objfun(x,y)
 
+    DO_ROTATE=true;
+
     if nargin == 1
         y = x(2);
         x = x(1);
     end
     
-    % rotation
-    ct = cos(pi/4);
-    st = sin(pi/4);
+    if DO_ROTATE
+        ct = cos(pi/4);
+        st = sin(pi/4);
+
+        xn = ct*x + st*y;
+        yn = ct*y - st*x;
+
+        x = xn;
+        y = yn;
+    end
     
-    xn = ct*x + st*y;
-    yn = ct*y - st*x;
-    
-    x = xn;
-    y = yn;
     z =  3*(1-x).^2.*exp(-(x.^2) - (y+1).^2) ...
         - 10*(x/5 - x.^3 - y.^5).*exp(-x.^2-y.^2) ...
         - 1/3*exp(-(x+1).^2 - y.^2);
 
 end
 
-function draw_surrogate(r,m,s)
+function draw_surrogate(r,m,s,v)
     
-    figure(1); %subplot(1,2,1); 
-    imagesc(r); caxis([-8 8]); c=colorbar; 
-    c.Label.String = 'Objective Function';
+    global PAPER_MODE;
+    
+    if PAPER_MODE
+        figure(1); 
+    else
+        subplot(1,2,1);
+    end
+    imagesc(r); caxis([-8 8]); 
     set(gca,'YDir','normal');
-    title('Partition of Search Space');
+    if ~PAPER_MODE
+        c=colorbar; 
+        c.Label.String = 'Objective Function';
+        title('Partition of Search Space');
+    end
     
-    figure(2); %subplot(1,2,2)
-    surf(m+s,r-m); 
-    caxis([-8 8]); c=colorbar; 
-    c.Label.String = '(Objective - Surrogate)';
-    axis vis3d; title('Surrogate Function');
+    if PAPER_MODE
+        figure(2); 
+    else
+        subplot(1,2,2);
+    end
+    surf(m+v*s,r-m); caxis([-8 8]); axis vis3d; 
+    if ~PAPER_MODE
+        c=colorbar; 
+        c.Label.String = '(Objective - Surrogate)';
+        title('Surrogate Function');
+    end
     
 end
 
 function draw_tree(T,s)
-    figure(1); %subplot(1,2,1);
+    global PAPER_MODE;
+    if PAPER_MODE
+        figure(1); 
+    else
+        subplot(1,2,1);
+    end
     hold on; d=T.depth;
     for h = 1:d
         L = find(T.level(h).leaf);
@@ -118,7 +161,7 @@ end
 
 function draw_samples(X)
     hold on; 
-    h2 = plot( X(1:4,1), X(1:4,2), 'kp' );
+    h2 = plot( X(1:4,1), X(1:4,2), 'kp', 'MarkerSize', 8 );
     h1 = plot( X(5:end,1), X(5:end,2), 'k*', 'MarkerSize', 8 );
     hold off;
     legend([h1,h2],'Evaluated Points','L1-ball vertices');
@@ -127,7 +170,7 @@ end
 function exportfig( fig_id, folder, nametpl )
     
     for f = fig_id
-        dk.ui.fig.export(figure(f),fullfile(folder,sprintf(nametpl,f)),'normal');
+        dk.ui.fig.export(figure(f),fullfile(folder,sprintf(nametpl,f)),'paper');
     end
 
 end

@@ -13,6 +13,7 @@ classdef GPSO < handle
     
     events
         PostInitialise
+        PreIteration
         PostIteration
         PostUpdate
         PreFinalise
@@ -45,7 +46,7 @@ classdef GPSO < handle
         
         % dependent parameter to get the current iteration count
         % useful when working with event callbacks
-        function n = get.Niter(self), n=1+numel(self.iter); end
+        function n = get.Niter(self), n=numel(self.iter); end
         
         function self=configure( self, sigma, varsigma )
         %
@@ -58,7 +59,7 @@ classdef GPSO < handle
         % JH
             
             if nargin < 2, sigma = 1e-3; end
-            if nargin < 3, varsigma = erfcinv(0.005); end 
+            if nargin < 3, varsigma = erfcinv(0.01); end 
             
             meanfunc = @meanConst; hyp.mean = 0;
             covfunc  = {@covMaterniso, 5}; % isotropic Matern covariance 
@@ -113,39 +114,33 @@ classdef GPSO < handle
             dk.assert( isscalar(verb) && islogical(verb), 'verb should be boolean.' );
             
             tstart = tic;
-            self.iter = {};
             self.verb = verb;
+            self.iter = {};
             
             % initialisation
+            gpml_start();
             self.info( 'Starting %d-dimensional optimisation, with a budget of %d evaluations...', Ndim, Neval );
             [i_max,k_max] = self.initialise( domain, objfun );
+            upn = self.step_update(upc,0);
             self.notify( 'PostInitialise' );
             
             % iterate
-            best = self.srgt.best_score();
-            upn = self.srgt.Ne;
-            
-            gpml_start();
             while self.srgt.Ne < Neval
                 
-                self.info('\n\t------------------------------ Elapsed time: %s', dk.time.sec2str(toc(tstart)) );
-                self.info('\tIteration #%d (depth: %d, neval: %d, score: %g)', ...
-                    self.Niter, self.tree.depth, self.srgt.Ne, best );
+                self.info('\t------------------------------');
+                self.notify( 'PreIteration' );
                 
-                upn = self.step_update(upc,upn);
                 self.step_explore(i_max,k_max,Nsamp);
                 [i_max,k_max] = self.step_select(objfun);
+                upn = self.step_update(upc,upn);
                 
                 Nselect = nnz(i_max);
-                best = self.srgt.best_score();
-                
                 if Nselect == 0
-                    warning( 'No remaining leaf after step 3, aborting.' );
+                    warning( 'No leaf selected for iteration, aborting.' );
                     break;
                 end
                 
-                % update iteration data
-                self.iter{end+1} = [Nselect, best];
+                self.info_progress(tstart,Nselect);
                 self.notify( 'PostIteration' );
                 
             end
@@ -154,6 +149,7 @@ classdef GPSO < handle
             self.notify( 'PreFinalise' );
             out = self.finalise();
             
+            self.info('\n------------------------------');
             self.info('Best score out of %d samples: %g', numel(out.samp.f), out.sol.f);
             self.info('Total runtime: %s', dk.time.sec2str(toc(tstart)) );
             
@@ -336,6 +332,18 @@ classdef GPSO < handle
             if self.verb
                 fprintf( [fmt '\n'], varargin{:} );
             end
+        end
+        
+        % print progress
+        function data = info_progress(self,tstart,Nselect)
+            
+            data = [toc(tstart), self.tree.depth, Nselect, self.srgt.Ne, self.srgt.best_score];
+            
+            self.iter{end+1} = data;
+            self.info('\tEnd of iteration #%d (depth: %d, nselect: %d, neval: %d, score: %g)', ...
+                self.Niter, data(2), data(3), data(4), data(5) );
+            self.info('\t------------------------------ Elapsed time: %s\n', dk.time.sec2str(data(1)) );
+            
         end
         
     end
