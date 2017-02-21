@@ -294,7 +294,7 @@ classdef GPSO < handle
             Ne = self.srgt.Ne;
             if (Ne-upn) >= upc
 
-                self.info('\tHyperparameter update (neval=%d).',upn);
+                self.info('\tHyperparameter update (neval=%d).',Ne);
                 self.srgt.gp_update();
                 upn = Ne;
                 self.notify( 'PostUpdate' );
