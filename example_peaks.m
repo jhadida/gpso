@@ -1,24 +1,24 @@
-function obj = example_peaks( nmax, xdom, ydom )
+function [out,obj] = example_peaks( nmax, xdom, ydom )
 %
-% Example work: 
-% example_peaks(50);
-% example_peaks(80,[-9 7 50],[-10 13 50]);
-% example_peaks(80,[-9 7 50],[-2 13 50]);
+% [out,obj] = example_peaks( nmax, xdom, ydom )
 %
-% Example fail: 
-% example_peaks(100,[-5 10 100],[-5 17 100]);
+% Examples: 
+%   example_peaks(50);
+%   example_peaks(50,[-9 7 80],[-10 13 80]);
+%   example_peaks(50,[-9 7 80],[-2 13 80]);
+%   example_peaks(80,[-5 10 80],[-5 17 80]);
 %
 % JH
 
     global PAPER_MODE;
     PAPER_MODE=false;
-    NEXPLORE=30;
+    XDEPTH=3;
 
-    if nargin < 2, xdom=[-3 3 100]; end
+    if nargin < 2, xdom=[-3 3 80]; end
     if nargin < 3, ydom=xdom; end
 
     % optimiser and listener
-    obj = GPSO().configure();
+    obj = GPSO('tree');
     obj.addlistener( 'PostIteration', @callback );
     
     % generate reference surface
@@ -40,7 +40,7 @@ function obj = example_peaks( nmax, xdom, ydom )
         figure; colormap('jet'); dk.ui.fig.resize(gcf,[500,1100]);
     end
     domain = [ xdom(1:2); ydom(1:2) ];
-    obj.run( @objfun, domain, nmax, NEXPLORE );
+    out = obj.run( @objfun, domain, nmax, XDEPTH );
 
     % callback function
     function callback( src, edata )
@@ -77,7 +77,7 @@ end
 
 function z = objfun(x,y)
 
-    DO_ROTATE=true;
+    DO_ROTATE=false;
 
     if nargin == 1
         y = x(2);

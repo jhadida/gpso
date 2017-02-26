@@ -1,10 +1,14 @@
 classdef GPSO < handle
     
+    properties
+        verb % verbose switch
+        xmet % exploration method
+    end
+    
     properties (SetAccess=private)
         srgt % GP surrogate
         tree % sampling tree
         iter % iteration data
-        verb % verbose switch
     end
     
     properties (Transient,Dependent)
@@ -32,9 +36,9 @@ classdef GPSO < handle
     %
     methods
         
-        function self = GPSO()
+        function self = GPSO(varargin)
             self.clear();
-            self.configure(); % set defaults
+            self.configure(varargin{:}); 
         end
         
         function self=clear(self)
@@ -42,24 +46,32 @@ classdef GPSO < handle
             self.tree = GPSO_Tree();
             self.iter = {};
             self.verb = true;
+            self.xmet = 'tree';
         end
         
         % dependent parameter to get the current iteration count
         % useful when working with event callbacks
         function n = get.Niter(self), n=numel(self.iter); end
         
-        function self=configure( self, sigma, varsigma )
+        function self=configure( self, method, sigma, varsigma )
+        %
+        % method: default 'tree'
+        %   Method used for exploration step, either 'tree' or 'samp'.
         %
         % sigma: default 1e-4
-        %   Initial log-std of Gaussian likelihood function (normalised units).
+        %   Initial std of Gaussian likelihood function (in normalised units).
         %
         % varsigma: default 3
-        %   Controls the probability that UCB < f.
+        %   Expected probability that UCB < f.
+        %   Another way to understand this parameter is that it controls how 
+        %   "optimistic" we are during the exploration step. At a point x 
+        %   evaluated using GP, the UCB will be: mu(x) + varsigma*sigma(x).
         %
         % JH
             
-            if nargin < 2, sigma = 1e-3; end
-            if nargin < 3, varsigma = erfcinv(0.01); end 
+            if nargin < 2, method = 'tree'; end
+            if nargin < 3, sigma = 1e-3; end
+            if nargin < 4, varsigma = erfcinv(0.01); end 
             
             meanfunc = @meanConst; hyp.mean = 0;
             covfunc  = {@covMaterniso, 5}; % isotropic Matern covariance 
@@ -74,14 +86,15 @@ classdef GPSO < handle
             
             self.srgt.set_gp( hyp, meanfunc, covfunc );
             self.srgt.set_varsigma_const( varsigma );
+            self.xmet = method;
 
         end
         
-        function out = run( self, objfun, domain, Neval, Nsamp, upc, verb )
+        function out = run( self, objfun, domain, Neval, Xparam, upc, verb )
         %
         % objfun:
         %   Function handle taking a candidate sample and returning a scalar.
-        %   Candidate sample size will be 1 x Ndim.
+        %   Expected input size should be 1 x Ndim.
         %   The optimisation MAXIMISES this function.
         %
         % domain:
@@ -91,6 +104,13 @@ classdef GPSO < handle
         %   Maximum number of function evaluation.
         %   This can be considered as a "budget" for the optimisation.
         %   Note that the actual number of evaluations can exceed this value (usually not by much).
+        %
+        % Xparam: default Ndim if xmet='tree', 3*Ndim^2 otherwise
+        %   Parameter for the exploration step (depth if xmet='tree', number of samples otherwise).
+        %   You can set the exploration method manually (attribute xmet), or via the configure method.
+        %   Note that in dimension D, you need a depth at least D if you want each dimension to be 
+        %   split at least once. This becomes rapidly impractical as D increases, so you might want
+        %   to select the sampling method instead if D is large.
         %
         % upc: default 2*Ndims
         %   Update constant for GP hyperparameters.
@@ -107,7 +127,9 @@ classdef GPSO < handle
             Ndim = size(domain,1);
             if nargin < 7, verb=true; end
             if nargin < 6 || isempty(upc), upc=1; end
-            if nargin < 5 || isempty(Nsamp), Nsamp=3*Ndim^2; end
+            
+            Xdef = struct( 'tree', Ndim, 'samp', 3*Ndim^2 );
+            if nargin < 5 || isempty(Xparam), Xparam=Xdef.(self.xmet); end
             
             dk.assert( dk.is.integer(Neval) && Neval>2*Ndim, 'Neval should be >%d.', 2*Ndim );
             dk.assert( dk.is.number(upc) && upc>0, 'upc should be >0.' );
@@ -130,7 +152,7 @@ classdef GPSO < handle
                 self.info('\t------------------------------');
                 self.notify( 'PreIteration' );
                 
-                self.step_explore(i_max,k_max,Nsamp);
+                self.step_explore(i_max,k_max,Xparam);
                 [i_max,k_max] = self.step_select(objfun);
                 upn = self.step_update(upc,upn);
                 
@@ -168,62 +190,37 @@ classdef GPSO < handle
             node.samp  = self.srgt.y(node.samp,:);
         end
         
-        function [best,T] = explore(self,node,depth,varsigma,until)
+        function [best,S] = explore_tree(self,node,depth,varsigma)
         %
         % node: either a 1x2 array [h,i] (cf get_node), or a node structure
         % depth: how deep the exploration tree should be 
-        %   (WARNING: tree grows exponentially, there will be 3^depth node)
+        %   (WARNING: tree grows exponentially!)
         % varsigma: optimism constant to be used locally for UCB
-        % until: early cancelling criterion (stop if one of the samples has a better score)
-        %   (NOTE: default is Inf, so full exploration)
         %
         % Explore node by growing exhaustive partition tree, using surrogate for evaluation.
         %
-        
-            if nargin < 5, until=inf; end
             
+            dk.assert( depth <= 8, [ ... 
+                'This is safeguard error to prevent deep tree explorations.\n' ...
+                'If you meant to set the option xmet="tree" with a depth of %d (%d samples),\n' ...
+                'then please comment this message in the method explore_tree.\n' ...
+            ], depth, 3^depth );
+        
             % get node if index were passed
             if ~isstruct(node)
                 node = self.get_node(node(1),node(2));
             end
             
-            % Temporary exploration tree
-            T = dk.struct.repeat( {'lower','upper','coord','samp'}, depth+1, 1 );
+            % number of points to sample
+            S.coord = recursive_split( node, depth );
             
-            T(1).lower = node.lower;
-            T(1).upper = node.upper;
-            T(1).coord = node.coord;
-            T(1).samp  = node.samp;
+            % evaluate those points
+            [mu,sigma] = self.srgt.gp_call( S.coord );
+            ucb = mu + varsigma*sigma;
             
-            best = T(1).samp;
-            if best(3) >= until, return; end
-            
-            for h = 1:depth
-                for i = 1:3^(h-1)
-
-                    % evaluate GP
-                    [g,d,x,s]  = split_largest_dimension( T(h), i, T(h).coord(i,:) );
-                    [mu,sigma] = self.srgt.gp_call( [g;d] );
-
-                    % update best score
-                    ucb   = mu + varsigma*sigma;
-                    [u,k] = max(ucb);
-                    if u > best(3)
-                        best = [ mu(k), sigma(k), u ];
-                    end
-                    
-                    if u >= until; break; end % early cancelling
-
-                    % record new nodes
-                    U = split_tree( T(h), i, g, d, x, s );
-                    T(h+1).coord = [ T(h+1).coord; U.coord ];
-                    T(h+1).lower = [ T(h+1).lower; U.lower ];
-                    T(h+1).upper = [ T(h+1).upper; U.upper ];
-                    T(h+1).samp  = [ T(h+1).samp; [mu,sigma,ucb] ];
-
-                end
-                if u >= until; break; end % chain-break
-            end
+            [u,k]  = max(ucb);
+            best   = [ mu(k), sigma(k), u ];
+            S.samp = [ mu, sigma, ucb ];
             
         end
         
@@ -406,11 +403,14 @@ classdef GPSO < handle
         end
         
         % exploration step: split and sample
-        function step_explore(self,i_max,k_max,Nsamp)
+        function step_explore(self,i_max,k_max,Xparam)
             
             self.info('\tStep 1:');
             depth = self.tree.depth;
             varsigma = self.srgt.get_varsigma();
+            
+            Xfun = struct( 'tree', @self.explore_tree, 'samp', @self.explore_samp );
+            Xfun = Xfun.(self.xmet);
             
             for h = 1:depth
             if i_max(h) > 0
@@ -421,12 +421,16 @@ classdef GPSO < handle
                 % Split leaf along largest dimension
                 [g,d,x,s] = split_largest_dimension( self.tree.level(h), imax, self.srgt.coord(kmax) );
                 U = split_tree( self.tree.level(h), imax, g, d, x, s );
-                Uget = @(n) struct( 'lower', U.lower(n,:), 'upper', U.upper(n,:) );
+                Uget = @(n) struct( ...
+                    'lower', U.lower(n,:), ...
+                    'upper', U.upper(n,:), ...
+                    'coord', U.coord(n,:)  ...
+                );
                 
                 % Explore each new leaf with a uniform sample
-                best_g = self.explore_samp( Uget(1), Nsamp, varsigma );
-                best_d = self.explore_samp( Uget(2), Nsamp, varsigma );
-                best_x = self.explore_samp( Uget(3), Nsamp, varsigma );
+                best_g = Xfun( Uget(1), Xparam, varsigma );
+                best_d = Xfun( Uget(2), Xparam, varsigma );
+                best_x = Xfun( Uget(3), Xparam, varsigma );
                 edit_x = [ self.srgt.mu(kmax), 0, best_x(3) ]; % boosting
                 
                 % Append points and update tree
@@ -496,6 +500,43 @@ end
 %          /        |       |        \
 %        Tmin     Gmax     Dmin     Tmax
 %
+
+function coord = recursive_split(node,k)
+
+    Tmin = node.lower;
+    Tmax = node.upper;
+    
+    x = node.coord;
+    if k == 0
+        coord = x;
+        return;
+    end
+    
+    g = x;
+    d = x;
+    
+    [~,s] = max( Tmax - Tmin );
+    g(s)  = (5*Tmin(s) +   Tmax(s))/6;
+    d(s)  = (  Tmin(s) + 5*Tmax(s))/6;
+    
+    Gmax = Tmax;
+    Dmin = Tmin;
+    Xmin = Tmin;
+    Xmax = Tmax;
+    
+    Gmax(s) = (2*Tmin(s) +   Tmax(s))/3.0;
+    Dmin(s) = (  Tmin(s) + 2*Tmax(s))/3.0;
+    Xmin(s) = Gmax(s);
+    Xmax(s) = Dmin(s);
+    
+    make_node = @(ll,uu,xx) struct('lower',ll,'upper',uu,'coord',xx);
+    coord = [ ...
+        recursive_split(make_node(Tmin,Gmax,g),k-1);
+        recursive_split(make_node(Dmin,Tmax,d),k-1);
+        recursive_split(make_node(Xmin,Xmax,x),k-1)
+    ];
+
+end
 
 function [g,d,x,s] = split_largest_dimension(T,k,x)
 
