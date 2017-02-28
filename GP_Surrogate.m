@@ -18,8 +18,9 @@ classdef GP_Surrogate < handle
         delta; % dimensions of the box
     end
     
-    properties (Constant)
-        LIK_BND = [-12 -1];
+    properties 
+        LIK_BND = [-9 -1]; % scale of value uncertainty
+        COV_BND = [-4 -1]; % scale of spatial variation 
     end
     
     methods
@@ -231,6 +232,8 @@ classdef GP_Surrogate < handle
         
         % check a few things before calling gp
         function self=gp_check(self)
+            
+            inrange = @(x,r) (x >= r(1)) && (x <= r(2));
 
             % make sure GP is set
             assert( isfield(self.GP,'hyp'), 'GP has not been configured yet (see set_gp).' );
@@ -242,8 +245,9 @@ classdef GP_Surrogate < handle
                 gpml_start();
             end
             
-            % don't allow sigma to become too small (bad for optimisation)
-            self.GP.hyp.lik = max( self.GP.hyp.lik, -15 );
+            % don't allow scale parameters to become too small or too big
+            assert( inrange(self.GP.hyp.lik,self.LIK_BND), 'Likelihood hyperparameter outside expected range (cf property LIK_BND).' );
+            assert( inrange(self.GP.hyp.cov(1),self.COV_BND), 'First covariance hyperparameter outside expected range (cf property COV_BND).' );
         
         end
         
@@ -282,8 +286,9 @@ classdef GP_Surrogate < handle
             self.GP.hyp = minimize( self.GP.hyp, @gp, -100, ...
                 @infExact, self.GP.meanfunc, self.GP.covfunc, self.GP.likfunc, xe, fe );
             
-            % don't allow sigma to become too small or too big
+            % don't allow scale parameters to become too small or too big
             self.GP.hyp.lik = dk.math.clamp( self.GP.hyp.lik, self.LIK_BND );
+            self.GP.hyp.cov(1) = dk.math.clamp( self.GP.hyp.cov(1), self.COV_BND );
             
             % re-evaluate all gp-based samples
             if self.Ng > 0

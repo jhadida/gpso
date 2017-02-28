@@ -53,34 +53,38 @@ classdef GPSO < handle
         % useful when working with event callbacks
         function n = get.Niter(self), n=numel(self.iter); end
         
-        function self=configure( self, method, sigma, varsigma )
+        function self=configure( self, method, varsigma, mu, sigma )
         %
         % method: default 'tree'
         %   Method used for exploration step, either 'tree' or 'samp'.
         %
-        % sigma: default 1e-4
-        %   Initial std of Gaussian likelihood function (in normalised units).
-        %
-        % varsigma: default 3
+        % varsigma: default erfcinv(0.01)
         %   Expected probability that UCB < f.
         %   Another way to understand this parameter is that it controls how 
         %   "optimistic" we are during the exploration step. At a point x 
         %   evaluated using GP, the UCB will be: mu(x) + varsigma*sigma(x).
         %
+        % mu: default 0
+        %   Initial value of constant mean function.
+        %
+        % sigma: default 1e-3
+        %   Initial std of Gaussian likelihood function (in normalised units).
+        %
         % JH
             
             if nargin < 2, method = 'tree'; end
-            if nargin < 3, sigma = 1e-3; end
-            if nargin < 4, varsigma = erfcinv(0.01); end 
+            if nargin < 3, varsigma = erfcinv(0.01); end 
+            if nargin < 4, mu = 0; end
+            if nargin < 5, sigma = 1e-3; end
             
-            meanfunc = @meanConst; hyp.mean = 0;
+            meanfunc = @meanConst; 
             covfunc  = {@covMaterniso, 5}; % isotropic Matern covariance 
 
             ell = 1/4; 
             sf  = 1;
 
             % hyper-parameters
-            hyp.mean = 0; 
+            hyp.mean = mu; 
             hyp.lik  = log(sigma); 
             hyp.cov  = log([ell; sf]); 
             

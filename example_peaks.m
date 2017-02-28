@@ -77,7 +77,7 @@ end
 
 function z = objfun(x,y)
 
-    DO_ROTATE=false;
+    DO_ROTATE=true;
 
     if nargin == 1
         y = x(2);
