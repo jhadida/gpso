@@ -4,11 +4,11 @@ classdef GP_Surrogate < handle
         x; % sample coordinates
         y; % data array with columns [mu,sigma,ucb]
         GP; % GP parameters
-        varsigma; % controls optimism in the face of uncertainty
         
         lower;
         upper;
         
+        varsigma; % controls optimism in the face of uncertainty (not saved)
         Ne, Ng; % number of evaluated/GP-based samples
     end
     
@@ -95,7 +95,7 @@ classdef GP_Surrogate < handle
             y = bsxfun( @plus, y, self.lower );
         end
         
-        % append new samples
+        % append new sample(s)
         % WARNING: by default, assumes x is NORMALISED
         function k = append(self,x,y,isnorm)
             
