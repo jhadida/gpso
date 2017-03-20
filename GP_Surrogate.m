@@ -99,19 +99,50 @@ classdef GP_Surrogate < handle
         % WARNING: by default, assumes x is NORMALISED
         function k = append(self,x,y,isnorm)
             
-            n = size(x,1); 
+            eudist = @(a,b) sqrt(sum( bsxfun(@minus,a,b).^2, 2 )); % Euclidean distance
+            
+            nx = size(x,1); 
+            nd = self.Nd;
+            ns = self.Ns; % current number of points in the surrogate
+            
+            assert( size(x,2)==nd && size(y,2)==3, 'Bad input size.' );
+            assert( size(y,1)==nx, 'Input size mismatch.' );
+            
             if nargin < 4, isnorm=true; end
-            assert( size(y,1)==n, 'Size mismatch.' );
-            
-            k = self.Ns + (1:n);
-            g = nnz(y(:,2));
-            
             if ~isnorm, x = self.normalise(x); end
-            self.x = [self.x; x ];
-            self.y = [self.y; y ];
             
+            % find out if any of the points already exists
+            k = zeros(1,nx);
+            c = 0;
+            g = 0;
+            for i = 1:nx
+                
+                % don't search if the surrogate has no point
+                if ns > 0
+                    e = find(eudist( self.x, x(i,:) ) < 1e-12);
+                else
+                    e = [];
+                end
+                
+                if ~isempty(e)
+                    dk.assert( isscalar(e), '[bug] Duplicate points found at indices: %s', sprintf('%d ',e) );
+                    self.y(e,3) = y(i,3);
+                else
+                    c = c+1;
+                    e = ns + c; % new index
+                    g = g + (y(i,2) > 0); % is the new point GP-based?
+                    
+                    % append new point and score
+                    self.x = [self.x; x(i,:)];
+                    self.y = [self.y; y(i,:)];
+                end
+                
+                k(i) = e; % remember index of that point
+            end
+            
+            assert( all(k), '[bug] Something went wrong during assignment.' );
             self.Ng = self.Ng + g;
-            self.Ne = self.Ne + n-g;
+            self.Ne = self.Ne + c-g;
             
         end
         

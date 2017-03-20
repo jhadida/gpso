@@ -94,9 +94,9 @@ classdef GPSO < handle
 
         end
         
-        function out = run( self, varargin )
+        function out = run( self, objfun, domain, Neval, varargin )
         %
-        % out = run( self, objfun, domain, Neval, Xparam, ucount, verbose )
+        % out = run( self, objfun, domain, Neval, varargin )
         %
         % objfun:
         %   Function handle taking a candidate sample and returning a scalar.
@@ -111,64 +111,70 @@ classdef GPSO < handle
         %   This can be considered as a "budget" for the optimisation.
         %   Note that the actual number of evaluations can exceed this value (usually not by much).
         %
-        % Xparam: default Ndim if xmet='tree', 3*Ndim^2 otherwise
+        % InitSample: default L1-ball vertices
+        %   Initial set of points to use for initialisation.
+        %   Input can be an array of coordinates, in which case points are evaluated before optimisation.
+        %   Or a structure with fields {coord,score}, in which case they are used directly by the surrogate.
+        %
+        % ExploreSize: default 5 if xmet='tree', 5*Ndim^2 otherwise
         %   Parameter for the exploration step (depth if xmet='tree', number of samples otherwise).
         %   You can set the exploration method manually (attribute xmet), or via the configure method.
         %   Note that in dimension D, you need a depth at least D if you want each dimension to be 
         %   split at least once. This becomes rapidly impractical as D increases, so you might want
         %   to select the sampling method instead if D is large.
         %
-        % ucount: default 2*Ndim
+        % UpdateCycle: default 2*Ndim
         %   Update constant for GP hyperparameters.
         %   See step_update for currently selected method.
         %
-        % verbose: default true
+        % Verbose: default true
         %   Verbose switch.
         %
         % JH
         
-            [objfun, domain, Neval, Xparam, upc, verbose] = self.checkargs(varargin{:});
+            [objfun, domain, Neval, init, Xparam, upc, verbose] = ...
+                self.checkargs( objfun, domain, Neval, varargin{:} );
+            
             Ndim = size(domain,1);
+            tstart = tic;
+            self.verb = verbose;
+            self.iter = {};
             
-            function [i_max,k_max] = initfun()
-                self.info( 'Start %d-dimensional optimisation, with budget of %d evaluations...', Ndim, Neval );
-                [i_max,k_max] = self.initialise( domain, objfun );
+            % initialisation
+            gpml_start();
+            self.info( 'Start %d-dimensional optimisation, with budget of %d evaluations...', Ndim, Neval );
+            [i_max,k_max] = self.initialise( domain, objfun, init );
+            upn = self.step_update(upc,0);
+            self.notify( 'PostInitialise' );
+            
+            % iterate
+            while self.srgt.Ne < Neval
+                
+                self.info('\t------------------------------');
+                self.notify( 'PreIteration' );
+                
+                self.step_explore(i_max,k_max,Xparam);
+                [i_max,k_max] = self.step_select(objfun);
+                upn = self.step_update(upc,upn);
+                
+                Nselect = nnz(i_max);
+                if Nselect == 0
+                    warning( 'No leaf selected for iteration, aborting.' );
+                    break;
+                end
+                
+                self.progress(tstart,Nselect);
+                self.notify( 'PostIteration' );
+                
             end
+            gpml_stop();
             
-            out = self.optimise( @initfun, objfun, Neval, Xparam, upc, verbose );
+            self.notify( 'PreFinalise' );
+            out = self.finalise();
             
-        end
-        
-        function out = resume(self, sample, varargin)
-        %
-        % out = resume( self, sample, objfun, domain, Neval, Xparam, ucount, verbose )
-        %
-        % Same as run, but resume optimisation using input sample.
-        % This should be a structure with fields:
-        %   coord  Un-normalised coordinates of samples
-        %   score  Associated scores (in the same order)
-        %   Ninit  Number of points to use for initialisation
-        %
-        % Note that points after the initial Ninit MUST correspond to cell centres in 
-        % the partition of the domain, and in a correct order too. Initial points will
-        % not be taken into account in the partition, only in the training of the GP.
-        %
-        % JH
-            
-            [objfun, domain, Neval, Xparam, upc, verbose] = self.checkargs(varargin{:});
-            Ndim = size(domain,1);
-            
-            assert( isstruct(sample) && all(isfield( sample, {'coord','score','Ninit'} )), 'Bad sample' );
-            assert( size(sample.coord,1)==numel(sample.score), 'Size conflict in sample fields.' );
-            assert( size(sample.coord,2)==Ndim, 'Sample dimension mismatch.' );
-            Nsmp = size(sample.coord,1);
-            
-            function [i_max,k_max] = initfun()
-                self.info( 'Resume %d-dimensional optimisation, with budget of %d evaluations and %d given points...', Ndim, Neval, Nsmp );
-                [i_max,k_max] = self.rebuild( domain, sample );
-            end
-            
-            out = self.optimise( @initfun, objfun, Neval, Xparam, upc, verbose );
+            self.info('\n------------------------------');
+            self.info('Best score out of %d samples: %g', numel(out.samp.f), out.sol.f);
+            self.info('Total runtime: %s', dk.time.sec2str(toc(tstart)) );
             
         end
         
@@ -281,69 +287,45 @@ classdef GPSO < handle
     %
     methods (Hidden,Access=private)
         
-        % do the optimisation
-        function out = optimise( self, initfun, objfun, Neval, Xparam, upc, verbose )
-            
-            tstart = tic;
-            self.verb = verbose;
-            self.iter = {};
-            
-            % initialisation
-            gpml_start();
-            [i_max,k_max] = initfun();
-            upn = self.step_update(upc,0);
-            self.notify( 'PostInitialise' );
-            
-            % iterate
-            while self.srgt.Ne < Neval
-                
-                self.info('\t------------------------------');
-                self.notify( 'PreIteration' );
-                
-                self.step_explore(i_max,k_max,Xparam);
-                [i_max,k_max] = self.step_select(objfun);
-                upn = self.step_update(upc,upn);
-                
-                Nselect = nnz(i_max);
-                if Nselect == 0
-                    warning( 'No leaf selected for iteration, aborting.' );
-                    break;
-                end
-                
-                self.progress(tstart,Nselect);
-                self.notify( 'PostIteration' );
-                
-            end
-            gpml_stop();
-            
-            self.notify( 'PreFinalise' );
-            out = self.finalise();
-            
-            self.info('\n------------------------------');
-            self.info('Best score out of %d samples: %g', numel(out.samp.f), out.sol.f);
-            self.info('Total runtime: %s', dk.time.sec2str(toc(tstart)) );
-            
-        end
-        
-        function [objfun, domain, Neval, Xparam, upc, verbose] ...
-                = checkargs( self, objfun, domain, Neval, Xparam, upc, verbose )
+        function [objfun, domain, Neval, init, Xparam, upc, vrb] ...
+                = checkargs( self, objfun, domain, Neval, varargin )
 
+            opt = dk.obj.kwArgs(varargin{:});
+            
             assert( isa(objfun,'function_handle'), ...
                 'Objective function should be a function handle.' );
 
             assert( ismatrix(domain) && ~isempty(domain) && ... 
                 size(domain,2)==2 && all(diff(domain,1,2) > eps), 'Bad domain.' );
+            
+            lower = domain(:,1)';
+            upper = domain(:,2)';
 
             Ndim = size(domain,1);
-            Xdef = struct( 'tree', Ndim, 'samp', 3*Ndim^2 );
+            Xdef = struct( 'tree', 5, 'samp', 5*Ndim^2 );
+            Xdef = Xdef.(self.xmet);
+            Idef = 0.5 + [ -0.25*eye(Ndim); +0.25*eye(Ndim) ]; % vertices of L1 ball of radius 0.25
+            Idef = dk.bsx.add( lower, dk.bsx.mul(Idef,upper-lower) ); % denormalise 
+        
+            init   = opt.get( 'InitSample', Idef );
+            Xparam = opt.get( 'ExploreSize', Xdef );
+            upc    = opt.get( 'UpdateCycle', 1 );
+            vrb    = opt.get( 'Verbose', true );
 
-            if nargin < 7, verbose=true; end
-            if nargin < 6 || isempty(upc), upc=1; end
-            if nargin < 5 || isempty(Xparam), Xparam=Xdef.(self.xmet); end
-
-            dk.assert( dk.is.integer(Neval) && Neval>2*Ndim, 'Neval should be >%d.', 2*Ndim );
+            if isstruct(init)
+                assert( all(isfield( init, {'coord','score'} )), 'Missing initial sample field.' );
+                assert( isnumeric(init.coord) && size(init.coord,2)==Ndim, 'Bad coord size.' );
+                assert( isnumeric(init.score) && numel(init.score)==size(init.coord,1), 'Bad score size.' );
+                Neval = Neval + size(init.coord,1); % don't count existing samples
+                NeMin = 0;
+            else
+                assert( isnumeric(init) && size(init,2)==Ndim, 'Bad initial sample size.' );
+                NeMin = size(init,1);
+            end
+            
+            dk.assert( dk.is.integer(Neval) && Neval>NeMin, 'Neval should be >%d.', NeMin );
             dk.assert( dk.is.number(upc) && upc>0, 'upc should be >0.' );
-            dk.assert( isscalar(verbose) && islogical(verbose), 'verbose should be boolean.' );
+            dk.assert( isscalar(vrb) && islogical(vrb), 'verbose should be boolean.' );
 
         end
         
@@ -415,32 +397,38 @@ classdef GPSO < handle
     %
     methods (Hidden,Access=private)
         
-        function [i_max,k_max] = initialise(self,domain,objfun)
+        function [i_max,k_max] = initialise(self,domain,objfun,init)
             
             % initialise surrogate
             self.srgt.init( domain );
             nd = self.srgt.Nd;
-            nx = 2*nd+1;
             
-            % vertices of L1 ball of radius 0.25
-            Xinit = 0.5 + [ ...
-                -0.25*eye(nd); ...
-                +0.25*eye(nd); ...
-                zeros(1,nd) ... % centre of the domain
-            ]; 
-            Finit = nan(nx,1);
-            for k = 1:nx
-                Finit(k) = objfun(self.srgt.denormalise(Xinit(k,:)));
+            % set initial points
+            if ~isstruct(init)
+                x = init;
+                n = size(x,1);
+                y = nan(n,1);
+                for k = 1:n
+                    y(k) = objfun(x(k,:));
+                end
+            else
+                x = init.coord;
+                n = size(x,1);
+                y = init.score(:);
             end
-            Yinit = [Finit, zeros(nx,1), Finit];
-            self.srgt.append( Xinit, Yinit );
+            self.srgt.append( x, [y,zeros(n,1),y], false );
+            
+            % evaluate centre of the domain
+            x = 0.5 + zeros(1,nd);
+            y = objfun(self.srgt.denormalise(x));
+            k = self.srgt.append( x, [y,0,y], true );
             
             % initialise tree
-            self.tree.init(nd,nx);
+            self.tree.init(nd,k);
             
             % select root
             i_max = 1;
-            k_max = nx;
+            k_max = k;
             
         end
         
@@ -455,55 +443,6 @@ classdef GPSO < handle
             [x,f] = self.srgt.best_sample(true);
             out.sol.x = x;
             out.sol.f = f;
-            
-        end
-        
-        % rebuild tree and surrogate from given sample
-        function [i_max,k_max] = rebuild(self,domain,sample)
-            
-            error('Not ready yet.')
-            
-            % reinitialise surrogate
-            self.srgt.init( domain );
-            Ndim = size(domain,1);
-            Nini = sample.Ninit;
-            Nsmp = size(sample.coord,1);
-            
-            % extract sample points and associated scores
-            coord = self.srgt.normalise(sample.coord);
-            score = sample.score(:);
-            
-            % assign surrogate
-            self.srgt.append( coord, [score,zeros(Nsmp,1),score] );
-            
-            % find root and initialise tree
-            r = find_unique_match( coord, 0.5*ones(1,Ndim) );
-            self.tree.init(nd,r);
-            
-            % iterate until we can't find any match
-            c = 1;
-            h = 0;
-            while c > 0
-                
-                c = 0;
-                h = h+1;
-                w = self.tree.width(h);
-                
-                for i = 1:w
-                    k = self.tree.samp(h,i);
-                    x = self.srgt.coord(k);
-                    
-                    if find_unique_match(coord,x)
-                        [g,d,x,s] = split_largest_dimension( self.tree.level(h), i, x );
-                        U = split_tree( self.tree.level(h), i, g, d, x, s );
-
-                        mg = find_unique_match(coord,g);
-                        md = find_unique_match(coord,d);
-                    end
-                    
-                end
-                
-            end
             
         end
         
@@ -536,12 +475,10 @@ classdef GPSO < handle
                 best_g = Xfun( Uget(1), Xparam, varsigma );
                 best_d = Xfun( Uget(2), Xparam, varsigma );
                 best_x = Xfun( Uget(3), Xparam, varsigma );
-                edit_x = [ self.srgt.mu(kmax), 0, best_x(3) ]; % boosting
                 
                 % Append points and update tree
-                k = self.srgt.append( [g;d], [best_g;best_d], true );
-                self.srgt.update( kmax, edit_x ); 
-                self.tree.split( [h,imax], U.lower, U.upper, [k,kmax] );
+                k = self.srgt.append( [g;d;x], [best_g;best_d;best_x], true );
+                self.tree.split( [h,imax], U.lower, U.upper, k );
                 self.info('\t\t[h=%02d] Split dimension %d of leaf %d',h,s,imax);
                 
             end % if
@@ -598,11 +535,6 @@ classdef GPSO < handle
         
     end
     
-end
-
-function k = find_unique_match( x, y, thresh )
-    if nargin < 3, thresh=1e-12; end
-    k = find(sum(bsxfun(@minus,x,y).^2,2) < thresh);
 end
 
 % 

@@ -1,4 +1,4 @@
-function [out,obj] = example_peaks( nmax, xdom, ydom )
+function [out,obj] = example_peaks( nmax, xdom, ydom, init )
 %
 % [out,obj] = example_peaks( nmax, xdom, ydom )
 %
@@ -40,7 +40,11 @@ function [out,obj] = example_peaks( nmax, xdom, ydom )
         figure; colormap('jet'); dk.ui.fig.resize(gcf,[500,1100]);
     end
     domain = [ xdom(1:2); ydom(1:2) ];
-    out = obj.run( @objfun, domain, nmax, XDEPTH );
+    if nargin > 3
+        out = obj.run( @objfun, domain, nmax, 'ExploreSize', XDEPTH, 'InitSample', init );
+    else
+        out = obj.run( @objfun, domain, nmax, 'ExploreSize', XDEPTH );
+    end
 
     % callback function
     function callback( src, edata )
