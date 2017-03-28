@@ -21,6 +21,28 @@ classdef GPSO_Tree < handle
             self.Ns = 0;
         end
         
+        % serialise data to be saved
+        function D = serialise(self)
+            F = {'level','Nl','Ns'};
+            n = numel(F);
+            D = struct();
+            
+            for i = 1:n
+                f = F{i};
+                D.(f) = self.(f);
+            end
+            D.version = '0.1';
+        end
+        function self=unserialise(self,D)
+            F = {'level','Nl','Ns'};
+            n = numel(F);
+            
+            for i = 1:n
+                f = F{i};
+                self.(f) = D.(f);
+            end
+        end
+        
         function self=init(self,ndim,rid)
         %
         % ndim: dimensionality of search space
@@ -107,28 +129,6 @@ classdef GPSO_Tree < handle
             self.Ns = self.Ns+1;
             self.Nl = self.Nl+n-1;
             
-        end
-        
-        % serialise data to be saved
-        function D = serialise(self)
-            F = {'level','Nl','Ns'};
-            n = numel(F);
-            D = struct();
-            
-            for i = 1:n
-                f = F{i};
-                D.(f) = self.(f);
-            end
-            D.version = '0.1';
-        end
-        function self=unserialise(self,D)
-            F = {'level','Nl','Ns'};
-            n = numel(F);
-            
-            for i = 1:n
-                f = F{i};
-                self.(f) = D.(f);
-            end
         end
         
     end

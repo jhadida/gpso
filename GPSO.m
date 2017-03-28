@@ -157,13 +157,12 @@ classdef GPSO < handle
                 [i_max,k_max] = self.step_select(objfun);
                 upn = self.step_update(upc,upn);
                 
-                Nselect = nnz(i_max);
-                if Nselect == 0
+                if nnz(i_max) == 0
                     warning( 'No leaf selected for iteration, aborting.' );
                     break;
                 end
                 
-                self.progress(tstart,Nselect);
+                self.progress(tstart,i_max);
                 self.notify( 'PostIteration' );
                 
             end
@@ -375,14 +374,19 @@ classdef GPSO < handle
         end
         
         % print progress
-        function data = progress(self,tstart,Nselect)
+        function data = progress(self,tstart,i_max)
             
-            data = [toc(tstart), self.tree.depth, Nselect, self.srgt.Ne, self.srgt.best_score];
+            %data = [toc(tstart), self.tree.depth, Nselect, self.srgt.Ne, self.srgt.best_score];
+            
+            Ne = self.srgt.Ne;
+            time = toc(tstart);
+            best = self.srgt.best_score;
+            data = struct( 'runtime', time, 'split', i_max, 'neval', Ne, 'score', best );
             
             self.iter{end+1} = data;
             self.info('\tEnd of iteration #%d (depth: %d, nselect: %d, neval: %d, score: %g)', ...
-                self.Niter, data(2), data(3), data(4), data(5) );
-            self.info('\t------------------------------ Elapsed time: %s\n', dk.time.sec2str(data(1)) );
+                self.Niter, numel(i_max), nnz(i_max), Ne, best );
+            self.info('\t------------------------------ Elapsed time: %s\n', dk.time.sec2str(time) );
             
         end
         

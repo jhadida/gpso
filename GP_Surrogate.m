@@ -3,12 +3,12 @@ classdef GP_Surrogate < handle
     properties (SetAccess = private)
         x; % sample coordinates
         y; % data array with columns [mu,sigma,ucb]
-        GP; % GP parameters
         
         lower;
         upper;
         
-        varsigma; % controls optimism in the face of uncertainty (not saved)
+        GP; % GP parameters
+        varsigma; % controls optimism in the face of uncertainty (NOT SAVED)
         Ne, Ng; % number of evaluated/GP-based samples
     end
     
@@ -18,7 +18,7 @@ classdef GP_Surrogate < handle
         delta; % dimensions of the box
     end
     
-    properties 
+    properties (Transient)
         LIK_BND = [-9 -1]; % scale of value uncertainty
         COV_BND = [-4 -1]; % scale of spatial variation 
     end
@@ -40,27 +40,26 @@ classdef GP_Surrogate < handle
             self.Ng = 0;
         end
         
-        % setters
-        function self=set_gp(self, hyp, meanfunc, covfunc)
+        % serialise data to be saved
+        function D = serialise(self)
+            F = {'lower','upper','x','y','Ne','Ng','GP'};
+            n = numel(F);
+            D = struct();
             
-            gp.hyp = hyp;
-            gp.likfunc = @likGauss; % Gaussian likelihood is assumed for analytics
-            gp.meanfunc = meanfunc;
-            gp.covfunc = covfunc;
-            
-            self.GP = gp;
-            
+            for i = 1:n
+                f = F{i};
+                D.(f) = self.(f);
+            end
+            D.version = '0.1';
         end
-        
-        function v=get_varsigma(self)
-            v = self.varsigma(self.Ng);
-        end
-        function self=set_varsigma_paper(self,eta)
-            % JH: original varsigma can be complex for M=1 and eta=1
-            self.varsigma = @(M) sqrt(max( 0, 4*log(pi*M) - 2*log(12*eta) )); % cf Lemma 1
-        end        
-        function self=set_varsigma_const(self,val)
-            self.varsigma = @(M) val;
+        function self=unserialise(self,D)
+            F = {'lower','upper','x','y','Ne','Ng','GP'};
+            n = numel(F);
+            
+            for i = 1:n
+                f = F{i};
+                self.(f) = D.(f);
+            end
         end
         
         % dependent properties
@@ -84,7 +83,33 @@ classdef GP_Surrogate < handle
             self.Ng = 0;
             
         end
-                
+        
+        % mutators/accessors
+        function self=set_gp(self, hyp, meanfunc, covfunc)
+            
+            gp.hyp = hyp;
+            gp.likfunc = @likGauss; % Gaussian likelihood is assumed for analytics
+            gp.meanfunc = meanfunc;
+            gp.covfunc = covfunc;
+            
+            self.GP = gp;
+            
+        end
+        
+        function v=get_varsigma(self)
+            v = self.varsigma(self.Ng);
+        end
+        function self=set_varsigma_paper(self,eta)
+            % JH: original varsigma can be complex for M=1 and eta=1
+            self.varsigma = @(M) sqrt(max( 0, 4*log(pi*M) - 2*log(12*eta) )); % cf Lemma 1
+        end        
+        function self=set_varsigma_const(self,val)
+            self.varsigma = @(M) val;
+        end
+    end
+    
+    methods 
+        
         % normalise/denormalise coordinates
         function y = normalise(self,x)
             y = bsxfun( @minus, x, self.lower );
@@ -126,9 +151,9 @@ classdef GP_Surrogate < handle
                 
                 if ~isempty(e)
                     dk.assert( isscalar(e), '[bug] Duplicate points found at indices: %s', sprintf('%d ',e) );
-                    self.y(e,3) = y(i,3);
+                    self.y(e,3) = y(i,3); % just update UCB of the existing point
                 else
-                    c = c+1;
+                    c = c+1; % count new points
                     e = ns + c; % new index
                     g = g + (y(i,2) > 0); % is the new point GP-based?
                     
@@ -161,41 +186,6 @@ classdef GP_Surrogate < handle
         % WARNING: assumes query points xq are NOT normalised
         function [m,s] = surrogate(self,xq)
             [m,s] = self.gp_call(self.normalise(xq));
-        end
-        
-        % serialise data to be saved
-        function D = serialise(self)
-            F = {'lower','upper','x','y','Ne','Ng','GP'};
-            n = numel(F);
-            D = struct();
-            
-            for i = 1:n
-                f = F{i};
-                D.(f) = self.(f);
-            end
-            D.version = '0.1';
-        end
-        function self=unserialise(self,D)
-            F = {'lower','upper','x','y','Ne','Ng','GP'};
-            n = numel(F);
-            
-            for i = 1:n
-                f = F{i};
-                self.(f) = D.(f);
-            end
-        end
-        
-    end
-    
-    methods
-        
-        % access y's columns
-        function y = ycol(self,c,k)
-            if nargin > 2
-                y = self.y(k,c);
-            else
-                y = self.y(:,c);
-            end
         end
         
         % aliases to y's columns
@@ -251,7 +241,16 @@ classdef GP_Surrogate < handle
         
     end
     
-    methods
+    methods (Hidden)
+        
+        % access y's columns
+        function y = ycol(self,c,k)
+            if nargin > 2
+                y = self.y(k,c);
+            else
+                y = self.y(:,c);
+            end
+        end
         
         % UCB update
         function self=ucb_update(self)
