@@ -12,13 +12,13 @@ function [out,obj] = example_peaks( nmax, xdom, ydom, init )
 
     global PAPER_MODE;
     PAPER_MODE=false;
-    XDEPTH=3;
 
     if nargin < 2, xdom=[-3 3 80]; end
     if nargin < 3, ydom=xdom; end
 
     % optimiser and listener
-    obj = GPSO('tree');
+    obj = GPSO('tree'); XSIZE=3;
+    %obj = GPSO('samp'); XSIZE=100;
     obj.addlistener( 'PostIteration', @callback );
     
     % generate reference surface
@@ -28,22 +28,24 @@ function [out,obj] = example_peaks( nmax, xdom, ydom, init )
     gy = linspace( ydom(1), ydom(2), ny );
     [gx,gy] = meshgrid( gx, gy );
     
-    ref = objfun( gx, gy );
-    grd = [gx(:),gy(:)];
-    scl = [nx,ny];
+    ref = objfun( gx, gy ); % reference surface
+    grd = [gx(:),gy(:)]; % grid points as nx2 array
+    scl = [nx,ny]; % size of the grid
     
-    % run optimisation
+    % figures
     if PAPER_MODE
         figure(1); clf; colormap('jet'); dk.ui.fig.resize(gcf,[700,800]);
         figure(2); clf; colormap('jet'); dk.ui.fig.resize(gcf,[700,800]);
     else
         figure; colormap('jet'); dk.ui.fig.resize(gcf,[500,1100]);
     end
+    
+    % run optimisation
     domain = [ xdom(1:2); ydom(1:2) ];
     if nargin > 3
-        out = obj.run( @objfun, domain, nmax, 'ExploreSize', XDEPTH, 'InitSample', init );
+        out = obj.run( @objfun, domain, nmax, 'ExploreSize', XSIZE, 'InitSample', init );
     else
-        out = obj.run( @objfun, domain, nmax, 'ExploreSize', XDEPTH );
+        out = obj.run( @objfun, domain, nmax, 'ExploreSize', XSIZE );
     end
 
     % callback function
@@ -59,7 +61,7 @@ function [out,obj] = example_peaks( nmax, xdom, ydom, init )
         
         draw_surrogate( ref, mu, sigma, varsigma );
         draw_tree( tree, scl );
-        draw_samples(bsxfun( @times, srgt.samp_evaluated, scl )); 
+        draw_samples(bsxfun( @times, srgt.samp_evaluated(false), scl )); 
         drawnow; pause(0.5);
         
         if PAPER_MODE
@@ -69,7 +71,7 @@ function [out,obj] = example_peaks( nmax, xdom, ydom, init )
 
     % show axis on separate figure
     if PAPER_MODE
-        figure; colormap(jet); n = 1024;
+        figure; colormap('jet'); n = 1024;
         imagesc((0:n)'); grid off; box off;
         ytl = dk.arrayfun( @num2str, -8:2:8, false );
         set(gca,'xtick',[],'ytick',linspace(5,n-5,numel(ytl)),'yticklabel',ytl,'yaxislocation','right','ydir','normal');
