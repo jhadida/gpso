@@ -158,10 +158,14 @@ classdef GPSO_Tree < handle
             w = arrayfun( @(x) numel(x.samp), self.level ); % width of each level
             n = sum(w); % total number of nodes
             
+            % allocate output
+            T = zeros(1,n);
+            T = struct( 'n', n, 'd', d, ...
+                'parent', T, 'children', T, 'sample', T, 'depth', T, 'order', T ...
+            );
+            
             % first pass:
             %   set depth, sample indices, and re-index parents
-            T = zeros(1,n);
-            T = struct( 'parent', T, 'children', T, 'sample', T, 'depth', T, 'order', T, 'n', n, 'd', d );
             b = 1;
             e = 0;
             for h = 1:d
