@@ -482,7 +482,7 @@ classdef GPSO < handle
                 
                 % Append points and update tree
                 k = self.srgt.append( [g;d;x], [best_g;best_d;best_x], true );
-                self.tree.split( [h,imax], U.lower, U.upper, k );
+                self.tree.split( h, imax, U.lower, U.upper, k );
                 self.info('\t\t[h=%02d] Split dimension %d of leaf %d',h,s,imax);
                 
             end % if
