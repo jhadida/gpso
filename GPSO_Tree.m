@@ -142,13 +142,13 @@ classdef GPSO_Tree < handle
         
         function T = export_compact(self)
         %
-        % Export tree as a 5xn array where rows correspond to:
+        % Export tree as a structure with fields:
         %
-        %     parent_id  Index of the parent node in this array.
-        %   children_id  Zero for leaf-nodes, otherwise index of first child.
-        %     sample_id  Index of the corresponding surrogate sample.
-        %         depth  Depth of the node in the tree.
-        %         order  Index of seniority (higher values mean younger).
+        %     parent  Index of the parent node in this array.
+        %   children  Zero for leaf-nodes, otherwise index of first child.
+        %     sample  Index of the corresponding surrogate sample.
+        %      depth  Depth of the node in the tree.
+        %      order  Index of seniority (higher values mean younger).
         %
         % Note: children are necessarily next to each other, so if C is the index of the first child,
         %   then the other children are C+1 and C+2.
