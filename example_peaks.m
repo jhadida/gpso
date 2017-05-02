@@ -10,9 +10,6 @@ function [out,obj] = example_peaks( nmax, xdom, ydom, init )
 %
 % JH
 
-    global PAPER_MODE;
-    PAPER_MODE=false;
-
     if nargin < 2, xdom=[-3 3 80]; end
     if nargin < 3, ydom=xdom; end
 
@@ -33,12 +30,7 @@ function [out,obj] = example_peaks( nmax, xdom, ydom, init )
     scl = [nx,ny]; % size of the grid
     
     % figures
-    if PAPER_MODE
-        figure(1); clf; colormap('jet'); dk.ui.fig.resize(gcf,[700,800]);
-        figure(2); clf; colormap('jet'); dk.ui.fig.resize(gcf,[700,800]);
-    else
-        figure; colormap('jet'); dk.ui.fig.resize(gcf,[500,1100]);
-    end
+    figure; colormap('jet'); dk.ui.fig.resize(gcf,[500,1100]);
     
     % run optimisation
     domain = [ xdom(1:2); ydom(1:2) ];
@@ -64,19 +56,6 @@ function [out,obj] = example_peaks( nmax, xdom, ydom, init )
         draw_samples(bsxfun( @times, srgt.samp_evaluated(false), scl )); 
         drawnow; pause(0.5);
         
-        if PAPER_MODE
-            exportfig( [1 2], '/Users/jhadida/Desktop/IMG/gpso/paper_v4', sprintf('iter_%02d_f%%d.png',src.Niter) );
-        end
-    end
-
-    % show axis on separate figure
-    if PAPER_MODE
-        figure; colormap('jet'); n = 1024;
-        imagesc((0:n)'); grid off; box off;
-        ytl = dk.arrayfun( @num2str, -8:2:8, false );
-        set(gca,'xtick',[],'ytick',linspace(5,n-5,numel(ytl)),'yticklabel',ytl,'yaxislocation','right','ydir','normal');
-        ylabel( 'Objective Function' ); 
-        dk.ui.fig.resize( gcf, [800 100] );
     end
     
 end
@@ -110,42 +89,28 @@ end
 
 function draw_surrogate(r,m,s,v)
     
-    global PAPER_MODE;
-    
-    if PAPER_MODE
-        figure(1); 
-    else
-        subplot(1,2,1);
-    end
+    subplot(1,2,1);
     imagesc(r); caxis([-8 8]); 
     set(gca,'YDir','normal');
-    if ~PAPER_MODE
+    
         c=colorbar; 
         c.Label.String = 'Objective Function';
         title('Partition of Search Space');
-    end
     
-    if PAPER_MODE
-        figure(2); 
-    else
-        subplot(1,2,2);
-    end
-    surf(m+v*s,r-m); caxis([-8 8]); axis vis3d; 
-    if ~PAPER_MODE
+    
+    subplot(1,2,2);
+    %surf(m+v*s,r-m); caxis([-8 8]); axis vis3d; 
+    surf(m,r-m); caxis([-8 8]); axis vis3d; 
+    
         c=colorbar; 
         c.Label.String = '(Objective - Surrogate)';
         title('Surrogate Function');
-    end
     
 end
 
 function draw_tree(T,s)
-    global PAPER_MODE;
-    if PAPER_MODE
-        figure(1); 
-    else
-        subplot(1,2,1);
-    end
+    
+    subplot(1,2,1);
     hold on; d=T.depth;
     for h = 1:d
         L = find(T.level(h).leaf);
@@ -171,13 +136,5 @@ function draw_samples(X)
     h2 = plot( X(1:4,1), X(1:4,2), 'kp', 'MarkerSize', 8 );
     h1 = plot( X(5:end,1), X(5:end,2), 'k*', 'MarkerSize', 8 );
     hold off;
-    legend([h1,h2],'Evaluated Points','L1-ball vertices');
-end
-
-function exportfig( fig_id, folder, nametpl )
-    
-    for f = fig_id
-        dk.ui.fig.export(figure(f),fullfile(folder,sprintf(nametpl,f)),'paper');
-    end
-
+    legend([h1,h2],'Evaluated Points','Initial Points');
 end
