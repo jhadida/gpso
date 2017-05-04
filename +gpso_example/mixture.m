@@ -1,6 +1,6 @@
-function [out,dist,obj] = example_mixture( Ndim, Npeak, Neval, dist )
+function [out,dist,obj] = mixture( Ndim, Npeak, Neval, dist )
 %
-% [out,dist,obj] = example_mixture( Ndim, Npeak, Neval, dist )
+% [out,dist,obj] = gpso_example.mixture( Ndim, Npeak, Neval, dist )
 %
 % Optimise a Gaussian mixture using GPSO.
 %
@@ -20,8 +20,8 @@ function [out,dist,obj] = example_mixture( Ndim, Npeak, Neval, dist )
 %    obj  GPSO instance used for optimisation.
 %
 % Examples:
-%   [out,dist,obj] = example_mixture( 2, 10, 50 );
-%   [out,dist,obj] = example_mixture( 6, 20, 500 );
+%   [out,dist,obj] = gpso_example.mixture( 2, 10, 50 );
+%   [out,dist,obj] = gpso_example.mixture( 6, 20, 500 );
 %
 % JH
 

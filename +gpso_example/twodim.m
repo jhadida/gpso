@@ -1,21 +1,32 @@
-function [out,obj] = example_peaks( nmax, xdom, ydom, init )
+function [out,obj] = twodim( objfun, xdom, ydom, nmax, varargin )
 %
-% [out,obj] = example_peaks( nmax, xdom, ydom )
-%
-% Examples: 
-%   example_peaks(50);
-%   example_peaks(50,[-9 7 80],[-10 13 80]);
-%   example_peaks(50,[-9 7 80],[-2 13 80]);
-%   example_peaks(80,[-5 10 80],[-5 17 80]);
+% [out,obj] = gpso_example.twodim( objfun, xdom, ydom, nmax, varargin )
 %
 % JH
 
-    if nargin < 2, xdom=[-3 3 80]; end
-    if nargin < 3, ydom=xdom; end
+    opt = dk.obj.kwArgs(varargin{:});
+    
+    % drawing options
+    drawopt.caxis = opt.get('caxis','auto');
+    drawopt.eaxis = opt.get('eaxis','auto');
+    drawopt.drawucb = opt.get('drawucb',false);
+    
+    % initialisation
+    init = opt.get('init',[]);
 
-    % optimiser and listener
-    obj = GPSO('tree'); XSIZE=3;
-    %obj = GPSO('samp'); XSIZE=100;
+    % create optimiser
+    switch lower(opt.get('method','tree'))
+        case 'tree'
+            obj = GPSO('tree'); 
+            XSIZE = opt.get('xsize',3);
+        case 'samp'
+            obj = GPSO('samp'); 
+            XSIZE = opt.get('xsize',100);
+        otherwise
+            error('Unknown method.');
+    end
+    
+    % attach listener
     obj.addlistener( 'PostIteration', @callback );
     
     % generate reference surface
@@ -34,10 +45,10 @@ function [out,obj] = example_peaks( nmax, xdom, ydom, init )
     
     % run optimisation
     domain = [ xdom(1:2); ydom(1:2) ];
-    if nargin > 3
-        out = obj.run( @objfun, domain, nmax, 'ExploreSize', XSIZE, 'InitSample', init );
+    if isempty(init)
+        out = obj.run( objfun, domain, nmax, 'ExploreSize', XSIZE );
     else
-        out = obj.run( @objfun, domain, nmax, 'ExploreSize', XSIZE );
+        out = obj.run( objfun, domain, nmax, 'ExploreSize', XSIZE, 'InitSample', init );
     end
 
     % callback function
@@ -51,7 +62,7 @@ function [out,obj] = example_peaks( nmax, xdom, ydom, init )
         sigma = reshape( sigma, size(ref) );
         varsigma = src.srgt.get_varsigma();
         
-        draw_surrogate( ref, mu, sigma, varsigma );
+        draw_surrogate( ref, mu, sigma, varsigma, drawopt );
         draw_tree( tree, scl );
         draw_samples(bsxfun( @times, srgt.samp_evaluated(false), scl )); 
         drawnow; pause(0.5);
@@ -60,47 +71,22 @@ function [out,obj] = example_peaks( nmax, xdom, ydom, init )
     
 end
 
-function z = objfun(x,y)
-
-    DO_ROTATE=true;
-    OFFSET=0;
-
-    if nargin == 1
-        y = x(2);
-        x = x(1);
-    end
-    
-    if DO_ROTATE
-        ct = cos(pi/4);
-        st = sin(pi/4);
-
-        xn = ct*x + st*y;
-        yn = ct*y - st*x;
-
-        x = xn;
-        y = yn;
-    end
-    
-    z =  3*(1-x).^2.*exp(-(x.^2) - (y+1).^2) ...
-        - 10*(x/5 - x.^3 - y.^5).*exp(-x.^2-y.^2) ...
-        - 1/3*exp(-(x+1).^2 - y.^2) - OFFSET;
-
-end
-
-function draw_surrogate(r,m,s,v)
-    
+function draw_surrogate(r,m,s,v,opt)
     subplot(1,2,1);
-    imagesc(r); caxis([-8 8]); 
+    imagesc(r); caxis(opt.caxis); 
     set(gca,'YDir','normal');
     
         c=colorbar; 
         c.Label.String = 'Objective Function';
         title('Partition of Search Space');
     
-    
     subplot(1,2,2);
-    %surf(m+v*s,r-m); caxis([-8 8]); axis vis3d; 
-    surf(m,r-m); caxis([-8 8]); axis vis3d; 
+    if opt.drawucb 
+        surf(m+v*s,r-m); 
+    else
+        surf(m,r-m); 
+    end
+    caxis(opt.eaxis); axis vis3d; 
     
         c=colorbar; 
         c.Label.String = '(Objective - Surrogate)';
@@ -109,7 +95,6 @@ function draw_surrogate(r,m,s,v)
 end
 
 function draw_tree(T,s)
-    
     subplot(1,2,1);
     hold on; d=T.depth;
     for h = 1:d
