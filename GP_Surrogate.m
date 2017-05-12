@@ -188,6 +188,21 @@ classdef GP_Surrogate < handle
             [m,s] = self.gp_call(self.normalise(xq));
         end
         
+        % gradient estimate at query points
+        % WARNING: assumes query points xq are NOT normalised, BUT step should be in normalised units
+        function g = gradient(self,xq,h)
+            if nargin < 3, h=1e-3; end
+            
+            xq = self.normalise(xq);
+            g  = zeros(size(xq));
+            
+            for d = 1:self.Nd
+                step = zeros(1,self.Nd);
+                step(d) = h;
+                g(:,d) = (self.gp_call(dk.bsx.add(xq,step)) - self.gp_call(dk.bsx.sub(xq,step))) / (2*h);
+            end
+        end
+        
         % aliases to y's columns
         % if called without index, returns the whole column
         function m = mu(self,varargin), m = self.ycol(1,varargin{:}); end
