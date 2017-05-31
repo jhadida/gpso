@@ -171,7 +171,8 @@ classdef GPSO < handle
             self.notify( 'PreFinalise' );
             out = self.finalise();
             
-            self.info('\n------------------------------');
+            self.info('');
+            self.info('------------------------------');
             self.info('Best score out of %d samples: %g', numel(out.samp.f), out.sol.f);
             self.info('Total runtime: %s', dk.time.sec2str(toc(tstart)) );
             
@@ -369,7 +370,7 @@ classdef GPSO < handle
         % print formatted messages
         function info(self,fmt,varargin)
             if self.verb
-                fprintf( [fmt '\n'], varargin{:} );
+                fprintf( ['[GPSO] ' fmt '\n'], varargin{:} );
             end
         end
         
