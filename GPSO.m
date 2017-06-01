@@ -15,6 +15,7 @@ classdef GPSO < handle
         Niter;
     end
     
+    % use events to hook additional processing steps
     events
         PostInitialise
         PreIteration
@@ -31,8 +32,8 @@ classdef GPSO < handle
     % All the functions that a typical user will call.
     %
     % Housekeeping (constructor + cleanup)
-    % Runtime (configuration + run)
-    % Post-analysis (exploration + serialisation).
+    % Runtime (configuration, run, exploration)
+    % I/O (serialisation).
     %
     methods
         
@@ -180,8 +181,14 @@ classdef GPSO < handle
         
         function out = resume( self, objfun, Neval, varargin )
         %
-        % Resume optimisation, typically from unserialised GPSO object.
+        % out = resume( self, objfun, Neval, varargin )
         %
+        % Resume optimisation, typically from unserialised GPSO object.
+        % Note that the domain is not input here (extracted from surrogate instead).
+        % You do need to provide the same objective function though, and any other option
+        % set during the original run, to be consistent.
+        %
+        % JH
         
             domain = self.srgt.domain;
             [objfun, domain, Neval, ~, Xparam, upc, verbose] = ...
@@ -197,7 +204,7 @@ classdef GPSO < handle
             Neval = Neval + self.srgt.Ne;
             i_max = self.iter{end}.split;
             k_max = self.get_k_max(i_max);
-            upn = self.step_update(upc,0);
+            upn = self.step_update(1,0); % force GP update
             
             % iterate
             while self.srgt.Ne < Neval
@@ -235,7 +242,7 @@ classdef GPSO < handle
         % h: depth
         % i: depth-specific node index
         %
-        % Get a node of the tree, with coordinates and sample.
+        % Get a node of the tree, with coordinates and sample info.
         %
         
             node = self.tree.node(h,i);
@@ -283,7 +290,7 @@ classdef GPSO < handle
         % ns: number of random points to draw within the node
         % varsigma: optimism constant to be used locally for UCB
         %
-        % Explore node by drawing uniformly distributed sample, using surrogate for evaluation. 
+        % Explore node with a uniformly random sample, using surrogate for evaluation. 
         %
             
             % get node if index were passed
@@ -339,6 +346,7 @@ classdef GPSO < handle
     %
     methods (Hidden,Access=private)
         
+        % parse and verify inputs / options
         function [objfun, domain, Neval, init, Xparam, upc, vrb] ...
                 = checkargs( self, objfun, domain, Neval, varargin )
 
@@ -567,7 +575,7 @@ classdef GPSO < handle
             
             for h = 1:depth
 
-                % find leaf node with score greater than any larger leaf node
+                % find leaf node with score greater than any elder leaf node
                 width = self.tree.width(h);
                 for i = 1:width
                     if self.tree.leaf(h,i)
@@ -624,9 +632,9 @@ function coord = recursive_split(node,k)
     Tmax = node.upper;
     
     x = node.coord;
-    if k == 0
+    if k == 0 % termination clause
         coord = x;
-        return;
+        return; 
     end
     
     g = x;
@@ -646,6 +654,7 @@ function coord = recursive_split(node,k)
     Xmin(s) = Gmax(s);
     Xmax(s) = Dmin(s);
     
+    % recursion
     make_node = @(ll,uu,xx) struct('lower',ll,'upper',uu,'coord',xx);
     coord = [ ...
         recursive_split(make_node(Tmin,Gmax,g),k-1);
@@ -684,6 +693,7 @@ function U = split_tree(T,k,g,d,x,s)
     Xmin(s) = Gmax(s);
     Xmax(s) = Dmin(s);
     
+    % careful, the order matters
     U.coord = [g;d;x];
     U.lower = [Tmin;Dmin;Xmin];
     U.upper = [Gmax;Tmax;Xmax];

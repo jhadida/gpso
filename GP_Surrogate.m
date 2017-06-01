@@ -124,6 +124,9 @@ classdef GP_Surrogate < handle
         
         % append new sample(s)
         % WARNING: by default, assumes x is NORMALISED
+        %
+        % We check if the point already exists in order to avoid calling the objective 
+        % function, in the case where an initial sample is provided manually.
         function k = append(self,x,y,isnorm)
             
             eudist = @(a,b) sqrt(sum( bsxfun(@minus,a,b).^2, 2 )); % Euclidean distance
@@ -325,6 +328,7 @@ classdef GP_Surrogate < handle
             
         end
         
+        % update GP hyperparameters
         function self=gp_update(self)
             
             self.gp_check();

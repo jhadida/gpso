@@ -144,11 +144,11 @@ classdef GPSO_Tree < handle
         %
         % Export tree as a structure with fields:
         %
-        %     parent  Index of the parent node in this array.
+        %     parent  Index of the parent node (in that array, not in this object).
         %   children  Zero for leaf-nodes, otherwise index of first child.
         %     sample  Index of the corresponding surrogate sample.
         %      depth  Depth of the node in the tree.
-        %      order  Index of seniority (higher values mean younger).
+        %      order  Index of youth (higher values mean younger).
         %
         % Note: children are necessarily next to each other, so if C is the index of the first child,
         %   then the other children are C+1 and C+2.
