@@ -123,7 +123,7 @@ classdef GPSO < handle
         %   split at least once. This becomes rapidly impractical as D increases, so you might want
         %   to select the sampling method instead if D is large.
         %
-        % UpdateCycle: default 2*Ndim
+        % UpdateCycle: default 1
         %   Update constant for GP hyperparameters.
         %   See step_update for currently selected method.
         %
