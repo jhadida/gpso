@@ -16,6 +16,7 @@ classdef GP_Surrogate < handle
         Ns; % number of samples
         Nd; % number of dimensions
         delta; % dimensions of the box
+        domain;
     end
     
     properties (Transient)
@@ -66,6 +67,7 @@ classdef GP_Surrogate < handle
         function n = get.Ns(self), n = size(self.x,1); end
         function n = get.Nd(self), n = numel(self.lower); end
         function d = get.delta(self), d = self.upper-self.lower; end
+        function d = get.domain(self), d = transpose([self.lower; self.upper]); end
         
         % initialisation
         function self=init(self,domain)

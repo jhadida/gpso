@@ -178,6 +178,58 @@ classdef GPSO < handle
             
         end
         
+        function out = resume( self, objfun, Neval, varargin )
+        %
+        % Resume optimisation, typically from unserialised GPSO object.
+        %
+        
+            domain = self.srgt.domain;
+            [objfun, domain, Neval, ~, Xparam, upc, verbose] = ...
+                self.checkargs( objfun, domain, Neval, varargin{:} );
+            
+            Ndim = size(domain,1);
+            tstart = tic;
+            self.verb = verbose;
+            
+            % initialisation
+            gpml_start();
+            self.info( 'Resume %d-dimensional optimisation, with budget of %d evaluations...', Ndim, Neval );
+            Neval = Neval + self.srgt.Ne;
+            i_max = self.iter{end}.split;
+            k_max = self.get_k_max(i_max);
+            upn = self.step_update(upc,0);
+            
+            % iterate
+            while self.srgt.Ne < Neval
+                
+                self.info('\t------------------------------');
+                self.notify( 'PreIteration' );
+                
+                self.step_explore(i_max,k_max,Xparam);
+                [i_max,k_max] = self.step_select(objfun);
+                upn = self.step_update(upc,upn);
+                
+                if nnz(i_max) == 0
+                    warning( 'No leaf selected for iteration, aborting.' );
+                    break;
+                end
+                
+                self.progress(tstart,i_max);
+                self.notify( 'PostIteration' );
+                
+            end
+            gpml_stop();
+            
+            self.notify( 'PreFinalise' );
+            out = self.finalise();
+            
+            self.info('');
+            self.info('------------------------------');
+            self.info('Best score out of %d samples: %g', numel(out.samp.f), out.sol.f);
+            self.info('Total runtime: %s', dk.time.sec2str(toc(tstart)) );
+        
+        end
+        
         function node = get_node(self,h,i)
         %
         % h: depth
@@ -388,6 +440,19 @@ classdef GPSO < handle
             self.info('\tEnd of iteration #%d (depth: %d, nselect: %d, neval: %d, score: %g)', ...
                 self.Niter, numel(i_max), nnz(i_max), Ne, best );
             self.info('\t------------------------------ Elapsed time: %s\n', dk.time.sec2str(time) );
+            
+        end
+        
+        % get k_max from i_max
+        function k_max = get_k_max(self,i_max)
+            
+            depth = self.tree.depth;
+            k_max = zeros(1,depth);
+            for h = 1:depth
+                if i_max(h) > 0
+                    k_max(h) = self.tree.samp(h,i_max(h));
+                end
+            end
             
         end
         

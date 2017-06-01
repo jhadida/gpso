@@ -14,7 +14,7 @@ function [out,obj] = peaks( nmax, xdom, ydom, varargin )
     if nargin < 2, xdom=[-3 3 80]; end
     if nargin < 3, ydom=xdom; end
 
-    args = [ {'caxis',[-8 8],'eaxis',[-8 8]}, varargin ];
+    args = [ {'caxis',[-8 8],'eaxis',[-8 8]}, varargin ]; 
     [out,obj] = gpso_example.twodim( @objfun, xdom, ydom, nmax, args{:} );
     
 end
