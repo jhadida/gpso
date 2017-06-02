@@ -237,6 +237,22 @@ classdef GPSO < handle
         
         end
         
+        function self = rebuild(self,samp,domain,Xparam)
+            
+            % train KDtree to search points
+            % create mask to mark all found points
+            
+            % train GP with evaluated points
+            
+            % iterate on tree depth until all points have been found
+                
+                % for each interval
+                    % if the centre is found, mark it and take score
+                    % otherwise explore
+                    % insert all three children into the surrogate
+            
+        end
+        
         function node = get_node(self,h,i)
         %
         % h: depth
