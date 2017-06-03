@@ -433,6 +433,7 @@ classdef GPSO < handle
             D.version = '0.1';
             
             if nargin > 1
+                self.info( 'Serialised into file: %s', filename );
                 save( filename, '-v7', '-struct', 'D' );
             end
         end
@@ -558,6 +559,7 @@ classdef GPSO < handle
                     y(k) = objfun(x(k,:));
                 end
             else
+                self.info('Using user-specified initial sample.');
                 x = init.coord;
                 n = size(x,1);
                 y = init.score(:);
