@@ -124,6 +124,7 @@ classdef GP_Surrogate < handle
         
         % append new sample(s)
         % WARNING: by default, assumes x is NORMALISED
+        % TODO? could use a Map for storage+search, but would need to hash coordinate vectors
         %
         % We check if the point already exists in order to avoid calling the objective 
         % function, in the case where an initial sample is provided manually.
@@ -329,11 +330,13 @@ classdef GP_Surrogate < handle
         end
         
         % update GP hyperparameters
-        function self=gp_update(self)
+        function self=gp_update(self,xe,fe)
             
             self.gp_check();
             
-            [xe,fe] = self.samp_evaluated();
+            if nargin < 2
+                [xe,fe] = self.samp_evaluated();
+            end
             self.GP.hyp = minimize( self.GP.hyp, @gp, -100, ...
                 @infExact, self.GP.meanfunc, self.GP.covfunc, self.GP.likfunc, xe, fe );
             

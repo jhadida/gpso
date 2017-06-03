@@ -1,4 +1,4 @@
-function [out,obj] = peaks( nmax, xdom, ydom, varargin )
+function [out,obj,foo] = peaks( nmax, xdom, ydom, varargin )
 %
 % [out,obj] = gpso_example.peaks( nmax, xdom, ydom, varargin )
 %
@@ -16,6 +16,7 @@ function [out,obj] = peaks( nmax, xdom, ydom, varargin )
 
     args = [ {'caxis',[-8 8],'eaxis',[-8 8]}, varargin ]; 
     [out,obj] = gpso_example.twodim( @objfun, xdom, ydom, nmax, args{:} );
+    foo = @objfun;
     
 end
 

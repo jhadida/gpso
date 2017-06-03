@@ -2,7 +2,6 @@ classdef GPSO < handle
     
     properties
         verb % verbose switch
-        xmet % exploration method
     end
     
     properties (SetAccess=private)
@@ -47,17 +46,13 @@ classdef GPSO < handle
             self.tree = GPSO_Tree();
             self.iter = {};
             self.verb = true;
-            self.xmet = 'tree';
         end
         
         % dependent parameter to get the current iteration count
         % useful when working with event callbacks
         function n = get.Niter(self), n=numel(self.iter); end
         
-        function self=configure( self, method, varsigma, mu, sigma )
-        %
-        % method: default 'tree'
-        %   Method used for exploration step, either 'tree' or 'samp'.
+        function self=configure( self, varsigma, mu, sigma )
         %
         % varsigma: default erfcinv(0.01)
         %   Expected probability that UCB < f.
@@ -73,10 +68,9 @@ classdef GPSO < handle
         %
         % JH
             
-            if nargin < 2, method = 'tree'; end
-            if nargin < 3, varsigma = erfcinv(0.01); end 
-            if nargin < 4, mu = 0; end
-            if nargin < 5, sigma = 1e-3; end
+            if nargin < 2, varsigma = erfcinv(0.01); end 
+            if nargin < 3, mu = 0; end
+            if nargin < 4, sigma = 1e-3; end
             
             meanfunc = @meanConst; 
             covfunc  = {@covMaterniso, 5}; % isotropic Matern covariance 
@@ -91,13 +85,12 @@ classdef GPSO < handle
             
             self.srgt.set_gp( hyp, meanfunc, covfunc );
             self.srgt.set_varsigma_const( varsigma );
-            self.xmet = method;
 
         end
         
-        function out = run( self, objfun, domain, Neval, varargin )
+        function out = run( self, objfun, domain, Neval, Xmet, Xprm, varargin )
         %
-        % out = run( self, objfun, domain, Neval, varargin )
+        % out = run( self, objfun, domain, Neval, Xmet, Xprm, varargin )
         %
         % objfun:
         %   Function handle taking a candidate sample and returning a scalar.
@@ -112,17 +105,22 @@ classdef GPSO < handle
         %   This can be considered as a "budget" for the optimisation.
         %   Note that the actual number of evaluations can exceed this value (usually not by much).
         %
-        % InitSample: default L1-ball vertices
-        %   Initial set of points to use for initialisation.
-        %   Input can be an array of coordinates, in which case points are evaluated before optimisation.
-        %   Or a structure with fields {coord,score}, in which case they are used directly by the surrogate.
+        % Xmet: default 'tree'
+        %   Method used for exploration of children intervals.
+        %     - tree explores by recursively applying the partition function;
+        %     - samp explores by randomly sampling the GP within the interval.
         %
-        % ExploreSize: default 5 if xmet='tree', 5*Ndim^2 otherwise
+        % Xprm: default 5 if xmet='tree', 5*Ndim^2 otherwise
         %   Parameter for the exploration step (depth if xmet='tree', number of samples otherwise).
         %   You can set the exploration method manually (attribute xmet), or via the configure method.
         %   Note that in dimension D, you need a depth at least D if you want each dimension to be 
         %   split at least once. This becomes rapidly impractical as D increases, so you might want
         %   to select the sampling method instead if D is large.
+        %
+        % InitSample: default L1-ball vertices
+        %   Initial set of points to use for initialisation.
+        %   Input can be an array of coordinates, in which case points are evaluated before optimisation.
+        %   Or a structure with fields {coord,score}, in which case they are used directly by the surrogate.
         %
         % UpdateCycle: default 1
         %   Update constant for GP hyperparameters.
@@ -133,8 +131,8 @@ classdef GPSO < handle
         %
         % JH
         
-            [objfun, domain, Neval, init, Xparam, upc, verbose] = ...
-                self.checkargs( objfun, domain, Neval, varargin{:} );
+            [objfun, domain, Neval, init, Xplore, upc, verbose] = ...
+                checkargs( objfun, domain, Neval, Xmet, Xprm, varargin{:} );
             
             Ndim = size(domain,1);
             tstart = tic;
@@ -154,7 +152,7 @@ classdef GPSO < handle
                 self.info('\t------------------------------');
                 self.notify( 'PreIteration' );
                 
-                self.step_explore(i_max,k_max,Xparam);
+                self.step_explore(i_max,k_max,Xplore);
                 [i_max,k_max] = self.step_select(objfun);
                 upn = self.step_update(upc,upn);
                 
@@ -179,20 +177,22 @@ classdef GPSO < handle
             
         end
         
-        function out = resume( self, objfun, Neval, varargin )
+        function out = resume( self, objfun, Neval, Xmet, Xprm, varargin )
         %
-        % out = resume( self, objfun, Neval, varargin )
+        % out = resume( self, objfun, Neval, Xmet, Xprm, varargin )
         %
         % Resume optimisation, typically from unserialised GPSO object.
-        % Note that the domain is not input here (extracted from surrogate instead).
-        % You do need to provide the same objective function though, and any other option
-        % set during the original run, to be consistent.
+        % See run method above for description of inputs and options (InitSample ignored).
+        %
+        % NOTE: the domain is not input here (extracted from surrogate instead).
+        % You do need to provide the same objective function though, and the same exploration
+        % options set during the original run, to be consistent.
         %
         % JH
         
             domain = self.srgt.domain;
-            [objfun, domain, Neval, ~, Xparam, upc, verbose] = ...
-                self.checkargs( objfun, domain, Neval, varargin{:} );
+            [objfun, domain, Neval, ~, Xplore, upc, verbose] = ...
+                checkargs( objfun, domain, Neval, Xmet, Xprm, varargin{:} );
             
             Ndim = size(domain,1);
             tstart = tic;
@@ -202,9 +202,8 @@ classdef GPSO < handle
             gpml_start();
             self.info( 'Resume %d-dimensional optimisation, with budget of %d evaluations...', Ndim, Neval );
             Neval = Neval + self.srgt.Ne;
-            i_max = self.iter{end}.split;
-            k_max = self.get_k_max(i_max);
             upn = self.step_update(1,0); % force GP update
+            skipexp = true; % skip first exploration
             
             % iterate
             while self.srgt.Ne < Neval
@@ -212,7 +211,11 @@ classdef GPSO < handle
                 self.info('\t------------------------------');
                 self.notify( 'PreIteration' );
                 
-                self.step_explore(i_max,k_max,Xparam);
+                if skipexp
+                    skipexp = false; 
+                else
+                    self.step_explore(i_max,k_max,Xplore);
+                end
                 [i_max,k_max] = self.step_select(objfun);
                 upn = self.step_update(upc,upn);
                 
@@ -237,19 +240,110 @@ classdef GPSO < handle
         
         end
         
-        function self = rebuild(self,samp,domain,Xparam)
+        function self = rebuild( self, samp, maxdepth, domain, Xmet, Xprm, varargin )
+        %
+        % self = rebuild( self, samp, maxdepth, domain, Xmet, Xprm, varargin )
+        %
+        % Rebuild optimiser state from input sample.
+        %
+        % samp must be a structure with fields {coord,score}, which should contain initial 
+        %   points as well as points sampled during optimisation.
+        % maxdepth is there to limit the search for sampled points in children intervals,
+        %   mainly because the middle child will always be found due to the recursive nature
+        %   of ternary splits.
+        %
+        % domain, Xmet and Xprm, and other options are as usual (see method run).
+        % UpdateCycle is ignored.
+        %
+        % JH
+        
+            error('Does not work for now');
+        
+            % check sample and maxdepth
+            assert( isstruct(samp) && all(isfield(samp,{'coord','score'})), 'Bad sample.' );
+            Nsamp = numel(samp.score);
             
-            % train KDtree to search points
-            % create mask to mark all found points
+            assert( size(samp.coord,1) == Nsamp, 'Sample size mismatch.' );
+            assert( dk.is.number(maxdepth) && maxdepth >= log(Nsamp)/log(3), 'Bad depth.' );
             
-            % train GP with evaluated points
+            % parse other inputs
+            [~, domain, ~, init, Xplore, ~, verbose] = ...
+                checkargs( @(x)x, domain, Inf, Xmet, Xprm, varargin{:} );
+            self.verb = verbose;
             
-            % iterate on tree depth until all points have been found
+            % re-initialise surrogate
+            NNS = self.reinitialise( domain, init, samp );
+            
+            % exploration parameters
+            varsigma = self.srgt.get_varsigma();
+            
+            Xmet = Xplore.method;
+            Xprm = Xplore.param;
+            Xfun = struct( 'tree', @self.explore_tree, 'samp', @self.explore_samp );
+            Xfun = Xfun.(Xmet);
+            
+            % recursive DFS with feedback
+            function yes = should_split(pid,node,h)
+                test = @(k) (k > 0) && (k ~= pid);
                 
-                % for each interval
-                    % if the centre is found, mark it and take score
-                    % otherwise explore
-                    % insert all three children into the surrogate
+                if h == maxdepth
+                    yes = test(NNS.find(node.coord));
+                else
+                    child = recursive_split( node, 1 );
+                    yes = test(NNS.find(child(1).coord)) ...
+                        || test(NNS.find(child(2).coord)) ...
+                        || test(NNS.find(child(3).coord)) ...
+                        || should_split(pid,child(1),h+1) ...
+                        || should_split(pid,child(2),h+1) ...
+                        || should_split(pid,child(3),h+1);
+                end
+            end
+            
+            function s = get_score(node)
+                try
+                    s = NNS.getScore(node.coord);
+                    s = [s,0,s];
+                catch
+                    s = Xfun( node, Xprm, varsigma );
+                end
+            end
+            
+            for h = 1:maxdepth
+                
+                w = self.tree.width(h);
+                for i = 1:w
+                    n = self.get_node(h,i);
+                    k = NNS.find(n.coord);
+                    if (k > 0) && should_split(k,n,h)
+                        
+                        % Split leaf along largest dimension
+                        [g,d,x,s] = split_largest_dimension( self.tree.level(h), i, n.coord );
+                        U = split_tree( self.tree.level(h), i, g, d, x, s );
+                        Uget = @(j) struct( ...
+                            'lower', U.lower(j,:), ...
+                            'upper', U.upper(j,:), ...
+                            'coord', U.coord(j,:)  ...
+                        );
+
+                        % Explore each new leaf with a uniform sample
+                        best_g = get_score(Uget(1));
+                        best_d = get_score(Uget(2));
+                        best_x = get_score(Uget(3));
+
+                        % Append points and update tree
+                        k = self.srgt.append( [g;d;x], [best_g;best_d;best_x], true );
+                        self.tree.split( h, i, U.lower, U.upper, k );
+                        
+                    end
+                end
+               
+                % early canceling
+                if all(NNS.found), break; end
+                
+            end
+            
+            % check that all points are found
+            assert( all(NNS.found), 'Some points were not found.' );
             
         end
         
@@ -288,7 +382,8 @@ classdef GPSO < handle
             end
             
             % number of points to sample
-            S.coord = recursive_split( node, depth );
+            tmp = recursive_split( node, depth );
+            S.coord = vertcat(tmp.coord);
             
             % evaluate those points
             [mu,sigma] = self.srgt.gp_call( S.coord );
@@ -361,49 +456,6 @@ classdef GPSO < handle
     % Functions used internally by the algorithm.
     %
     methods (Hidden,Access=private)
-        
-        % parse and verify inputs / options
-        function [objfun, domain, Neval, init, Xparam, upc, vrb] ...
-                = checkargs( self, objfun, domain, Neval, varargin )
-
-            opt = dk.obj.kwArgs(varargin{:});
-            
-            assert( isa(objfun,'function_handle'), ...
-                'Objective function should be a function handle.' );
-
-            assert( ismatrix(domain) && ~isempty(domain) && ... 
-                size(domain,2)==2 && all(diff(domain,1,2) > eps), 'Bad domain.' );
-            
-            lower = domain(:,1)';
-            upper = domain(:,2)';
-
-            Ndim = size(domain,1);
-            Xdef = struct( 'tree', 5, 'samp', 5*Ndim^2 );
-            Xdef = Xdef.(self.xmet);
-            Idef = 0.5 + [ -0.25*eye(Ndim); +0.25*eye(Ndim) ]; % vertices of L1 ball of radius 0.25
-            Idef = dk.bsx.add( lower, dk.bsx.mul(Idef,upper-lower) ); % denormalise 
-        
-            init   = opt.get( 'InitSample', Idef );
-            Xparam = opt.get( 'ExploreSize', Xdef );
-            upc    = opt.get( 'UpdateCycle', 1 );
-            vrb    = opt.get( 'Verbose', true );
-
-            if isstruct(init)
-                assert( all(isfield( init, {'coord','score'} )), 'Missing initial sample field.' );
-                assert( isnumeric(init.coord) && size(init.coord,2)==Ndim, 'Bad coord size.' );
-                assert( isnumeric(init.score) && numel(init.score)==size(init.coord,1), 'Bad score size.' );
-                Neval = Neval + size(init.coord,1); % don't count existing samples
-                NeMin = 0;
-            else
-                assert( isnumeric(init) && size(init,2)==Ndim, 'Bad initial sample size.' );
-                NeMin = size(init,1);
-            end
-            
-            dk.assert( dk.is.integer(Neval) && Neval>NeMin, 'Neval should be >%d.', NeMin );
-            dk.assert( dk.is.number(upc) && upc>0, 'upc should be >0.' );
-            dk.assert( isscalar(vrb) && islogical(vrb), 'verbose should be boolean.' );
-
-        end
         
         % keeping tabs on number of evaluated samples ..
         function upn=update_samp_linear(self,upc,upn)
@@ -526,6 +578,46 @@ classdef GPSO < handle
             
         end
         
+        function NNS = reinitialise(self,domain,init,samp)
+            
+            % initialise surrogate
+            self.srgt.init( domain );
+            nd = self.srgt.Nd;
+            
+            % normalise sample
+            samp.coord = self.srgt.normalise(samp.coord);
+            
+            % train GP
+            self.srgt.gp_update( samp.coord, samp.score );
+            
+            % create searcher
+            NNS = GPSO_Search( samp.coord, samp.score );
+            
+            % set initial points
+            if ~isstruct(init)
+                x = self.srgt.normalise(init);
+                n = size(x,1);
+                y = nan(n,1);
+                for k = 1:n
+                    y(k) = NNS.getScore(x(k,:));
+                end
+            else
+                x = self.srgt.normalise(init.coord);
+                n = size(x,1);
+                y = init.score(:);
+            end
+            self.srgt.append( x, [y,zeros(n,1),y], true );
+            
+            % find centre of the domain
+            x = 0.5 + zeros(1,nd);
+            y = NNS.getScore(x);
+            k = self.srgt.append( x, [y,0,y], true );
+            
+            % initialise tree
+            self.tree.init(nd,k);
+            
+        end
+        
         function out = finalise(self)
             
             % list all evaluated samples
@@ -541,14 +633,16 @@ classdef GPSO < handle
         end
         
         % exploration step: split and sample
-        function step_explore(self,i_max,k_max,Xparam)
+        function step_explore(self,i_max,k_max,Xplore)
             
             self.info('\tStep 1:');
             depth = self.tree.depth;
             varsigma = self.srgt.get_varsigma();
             
+            Xmet = Xplore.method;
+            Xprm = Xplore.param;
             Xfun = struct( 'tree', @self.explore_tree, 'samp', @self.explore_samp );
-            Xfun = Xfun.(self.xmet);
+            Xfun = Xfun.(Xmet);
             
             for h = 1:depth
             if i_max(h) > 0
@@ -565,10 +659,10 @@ classdef GPSO < handle
                     'coord', U.coord(n,:)  ...
                 );
                 
-                % Explore each new leaf with a uniform sample
-                best_g = Xfun( Uget(1), Xparam, varsigma );
-                best_d = Xfun( Uget(2), Xparam, varsigma );
-                best_x = Xfun( Uget(3), Xparam, varsigma );
+                % Explore each new leaf
+                best_g = Xfun( Uget(1), Xprm, varsigma );
+                best_d = Xfun( Uget(2), Xprm, varsigma );
+                best_x = Xfun( Uget(3), Xprm, varsigma );
                 
                 % Append points and update tree
                 k = self.srgt.append( [g;d;x], [best_g;best_d;best_x], true );
@@ -631,6 +725,55 @@ classdef GPSO < handle
     
 end
 
+% parse and verify inputs / options
+function [objfun, domain, Neval, init, Xplore, upc, vrb] ...
+        = checkargs( objfun, domain, Neval, Xmet, Xprm, varargin )
+
+    % objective
+    assert( isa(objfun,'function_handle'), ...
+        'Objective function should be a function handle.' );
+
+    % domain
+    assert( ismatrix(domain) && ~isempty(domain) && ... 
+        size(domain,2)==2 && all(diff(domain,1,2) > eps), 'Bad domain.' );
+
+    lower = domain(:,1)';
+    upper = domain(:,2)';
+    Ndim  = size(domain,1);
+    
+    % exploration
+    Xdef = struct( 'tree', 5, 'samp', 5*Ndim^2 );
+    if nargin < 4 || isempty(Xmet), Xmet = 'samp'; end
+    if nargin < 5 || isempty(Xprm), Xprm = Xdef.(Xmet); end
+    Xplore.method = Xmet;
+    Xplore.param = Xprm;
+    
+    % other inputs
+    Idef = 0.5 + [ -0.25*eye(Ndim); +0.25*eye(Ndim) ]; % vertices of L1 ball of radius 0.25
+    Idef = dk.bsx.add( lower, dk.bsx.mul(Idef,upper-lower) ); % denormalise 
+    
+    opt  = dk.obj.kwArgs(varargin{:});
+    init = opt.get( 'InitSample', Idef );
+    upc  = opt.get( 'UpdateCycle', 1 );
+    vrb  = opt.get( 'Verbose', true );
+
+    if isstruct(init)
+        assert( all(isfield( init, {'coord','score'} )), 'Missing initial sample field.' );
+        assert( isnumeric(init.coord) && size(init.coord,2)==Ndim, 'Bad coord size.' );
+        assert( isnumeric(init.score) && numel(init.score)==size(init.coord,1), 'Bad score size.' );
+        Neval = Neval + size(init.coord,1); % don't count existing samples
+        NeMin = 0;
+    else
+        assert( isnumeric(init) && size(init,2)==Ndim, 'Bad initial sample size.' );
+        NeMin = size(init,1);
+    end
+
+    dk.assert( dk.is.number(Neval) && Neval>NeMin, 'Neval should be >%d.', NeMin );
+    dk.assert( dk.is.number(upc) && upc>0, 'upc should be >0.' );
+    dk.assert( isscalar(vrb) && islogical(vrb), 'verbose should be boolean.' );
+
+end
+
 % 
 %       T.lower(k,:)              T.upper(k,:)
 % Lvl      \                         /
@@ -642,17 +785,17 @@ end
 %        Tmin     Gmax     Dmin     Tmax
 %
 
-function coord = recursive_split(node,k)
+function children = recursive_split(node,k)
 
     Tmin = node.lower;
     Tmax = node.upper;
     
-    x = node.coord;
     if k == 0 % termination clause
-        coord = x;
+        children = node;
         return; 
     end
     
+    x = node.coord(:)';
     g = x;
     d = x;
     
@@ -672,7 +815,7 @@ function coord = recursive_split(node,k)
     
     % recursion
     make_node = @(ll,uu,xx) struct('lower',ll,'upper',uu,'coord',xx);
-    coord = [ ...
+    children  = [ ...
         recursive_split(make_node(Tmin,Gmax,g),k-1);
         recursive_split(make_node(Dmin,Tmax,d),k-1);
         recursive_split(make_node(Xmin,Xmax,x),k-1)

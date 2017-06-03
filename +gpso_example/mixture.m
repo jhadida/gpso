@@ -56,8 +56,8 @@ function [out,dist,obj] = mixture( Ndim, Npeak, Neval, dist )
     end
 
     domain = [zeros(Ndim,1),width*ones(Ndim,1)];
-    obj = GPSO('samp'); % use sampling in higher dimensions
-    out = obj.run( @objfun, domain, Neval, 'ExploreSize', Ndim^3 );
+    obj = GPSO(); 
+    out = obj.run( @objfun, domain, Neval, 'samp', Ndim^3 ); % use sampling in higher dimensions
     
     
     % summary results

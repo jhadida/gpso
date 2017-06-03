@@ -14,19 +14,19 @@ function [out,obj] = twodim( objfun, xdom, ydom, nmax, varargin )
     % initialisation
     init = opt.get('init',[]);
 
-    % create optimiser
-    switch lower(opt.get('method','tree'))
+    % exploration method
+    Xmet = opt.get('xmet','tree');
+    switch Xmet
         case 'tree'
-            obj = GPSO('tree'); 
-            XSIZE = opt.get('xsize',3);
+            Xprm = opt.get('xprm',3);
         case 'samp'
-            obj = GPSO('samp'); 
-            XSIZE = opt.get('xsize',100);
+            Xprm = opt.get('xprm',100);
         otherwise
             error('Unknown method.');
     end
     
-    % attach listener
+    % create optimiser
+    obj = GPSO();
     obj.addlistener( 'PostIteration', @callback );
     
     % generate reference surface
@@ -46,9 +46,9 @@ function [out,obj] = twodim( objfun, xdom, ydom, nmax, varargin )
     % run optimisation
     domain = [ xdom(1:2); ydom(1:2) ];
     if isempty(init)
-        out = obj.run( objfun, domain, nmax, 'ExploreSize', XSIZE );
+        out = obj.run( objfun, domain, nmax, Xmet, Xprm );
     else
-        out = obj.run( objfun, domain, nmax, 'ExploreSize', XSIZE, 'InitSample', init );
+        out = obj.run( objfun, domain, nmax, Xmet, Xprm, 'InitSample', init );
     end
 
     % callback function
