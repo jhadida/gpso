@@ -191,14 +191,15 @@ classdef GPSO < handle
         % JH
         
             domain = self.srgt.domain;
-            [objfun, domain, Neval, ~, Xplore, upc, verbose] = ...
+            [objfun, domain, ~, ~, Xplore, upc, verbose] = ...
                 checkargs( objfun, domain, Neval, Xmet, Xprm, varargin{:} );
+            % Ignore Neval output because we ignore InitSample and that's the only way it can change
             
             Ndim = size(domain,1);
             tstart = tic;
             self.verb = verbose;
             
-            % initialisation
+            % no real initialisation, just use the surrogate in its current state
             gpml_start();
             self.info( 'Resume %d-dimensional optimisation, with budget of %d evaluations...', Ndim, Neval );
             Neval = Neval + self.srgt.Ne;
