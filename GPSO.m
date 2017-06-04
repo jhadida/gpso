@@ -240,113 +240,6 @@ classdef GPSO < handle
         
         end
         
-        function self = rebuild( self, samp, maxdepth, domain, Xmet, Xprm, varargin )
-        %
-        % self = rebuild( self, samp, maxdepth, domain, Xmet, Xprm, varargin )
-        %
-        % Rebuild optimiser state from input sample.
-        %
-        % samp must be a structure with fields {coord,score}, which should contain initial 
-        %   points as well as points sampled during optimisation.
-        % maxdepth is there to limit the search for sampled points in children intervals,
-        %   mainly because the middle child will always be found due to the recursive nature
-        %   of ternary splits.
-        %
-        % domain, Xmet and Xprm, and other options are as usual (see method run).
-        % UpdateCycle is ignored.
-        %
-        % JH
-        
-            error('Does not work for now');
-        
-            % check sample and maxdepth
-            assert( isstruct(samp) && all(isfield(samp,{'coord','score'})), 'Bad sample.' );
-            Nsamp = numel(samp.score);
-            
-            assert( size(samp.coord,1) == Nsamp, 'Sample size mismatch.' );
-            assert( dk.is.number(maxdepth) && maxdepth >= log(Nsamp)/log(3), 'Bad depth.' );
-            
-            % parse other inputs
-            [~, domain, ~, init, Xplore, ~, verbose] = ...
-                checkargs( @(x)x, domain, Inf, Xmet, Xprm, varargin{:} );
-            self.verb = verbose;
-            
-            % re-initialise surrogate
-            NNS = self.reinitialise( domain, init, samp );
-            
-            % exploration parameters
-            varsigma = self.srgt.get_varsigma();
-            
-            Xmet = Xplore.method;
-            Xprm = Xplore.param;
-            Xfun = struct( 'tree', @self.explore_tree, 'samp', @self.explore_samp );
-            Xfun = Xfun.(Xmet);
-            
-            % recursive DFS with feedback
-            function yes = should_split(pid,node,h)
-                test = @(k) (k > 0) && (k ~= pid);
-                
-                if h == maxdepth
-                    yes = test(NNS.find(node.coord));
-                else
-                    child = recursive_split( node, 1 );
-                    yes = test(NNS.find(child(1).coord)) ...
-                        || test(NNS.find(child(2).coord)) ...
-                        || test(NNS.find(child(3).coord)) ...
-                        || should_split(pid,child(1),h+1) ...
-                        || should_split(pid,child(2),h+1) ...
-                        || should_split(pid,child(3),h+1);
-                end
-            end
-            
-            function s = get_score(node)
-                try
-                    s = NNS.getScore(node.coord);
-                    s = [s,0,s];
-                catch
-                    s = Xfun( node, Xprm, varsigma );
-                end
-            end
-            
-            for h = 1:maxdepth
-                
-                w = self.tree.width(h);
-                for i = 1:w
-                    n = self.get_node(h,i);
-                    k = NNS.find(n.coord);
-                    if (k > 0) && should_split(k,n,h)
-                        
-                        % Split leaf along largest dimension
-                        [g,d,x,s] = split_largest_dimension( self.tree.level(h), i, n.coord );
-                        U = split_tree( self.tree.level(h), i, g, d, x, s );
-                        Uget = @(j) struct( ...
-                            'lower', U.lower(j,:), ...
-                            'upper', U.upper(j,:), ...
-                            'coord', U.coord(j,:)  ...
-                        );
-
-                        % Explore each new leaf with a uniform sample
-                        best_g = get_score(Uget(1));
-                        best_d = get_score(Uget(2));
-                        best_x = get_score(Uget(3));
-
-                        % Append points and update tree
-                        k = self.srgt.append( [g;d;x], [best_g;best_d;best_x], true );
-                        self.tree.split( h, i, U.lower, U.upper, k );
-                        
-                    end
-                end
-               
-                % early canceling
-                if all(NNS.found), break; end
-                
-            end
-            
-            % check that all points are found
-            assert( all(NNS.found), 'Some points were not found.' );
-            
-        end
-        
         function node = get_node(self,h,i)
         %
         % h: depth
@@ -577,46 +470,6 @@ classdef GPSO < handle
             % select root
             i_max = 1;
             k_max = k;
-            
-        end
-        
-        function NNS = reinitialise(self,domain,init,samp)
-            
-            % initialise surrogate
-            self.srgt.init( domain );
-            nd = self.srgt.Nd;
-            
-            % normalise sample
-            samp.coord = self.srgt.normalise(samp.coord);
-            
-            % train GP
-            self.srgt.gp_update( samp.coord, samp.score );
-            
-            % create searcher
-            NNS = GPSO_Search( samp.coord, samp.score );
-            
-            % set initial points
-            if ~isstruct(init)
-                x = self.srgt.normalise(init);
-                n = size(x,1);
-                y = nan(n,1);
-                for k = 1:n
-                    y(k) = NNS.getScore(x(k,:));
-                end
-            else
-                x = self.srgt.normalise(init.coord);
-                n = size(x,1);
-                y = init.score(:);
-            end
-            self.srgt.append( x, [y,zeros(n,1),y], true );
-            
-            % find centre of the domain
-            x = 0.5 + zeros(1,nd);
-            y = NNS.getScore(x);
-            k = self.srgt.append( x, [y,0,y], true );
-            
-            % initialise tree
-            self.tree.init(nd,k);
             
         end
         
@@ -860,3 +713,152 @@ function U = split_tree(T,k,g,d,x,s)
     U.upper = [Gmax;Tmax;Xmax];
 
 end
+
+
+
+% DOESNT WORK FOR NOW
+%
+% function NNS = reinitialise(self,domain,init,samp)
+% 
+%     % initialise surrogate
+%     self.srgt.init( domain );
+%     nd = self.srgt.Nd;
+% 
+%     % normalise sample
+%     samp.coord = self.srgt.normalise(samp.coord);
+% 
+%     % train GP
+%     self.srgt.gp_update( samp.coord, samp.score );
+% 
+%     % create searcher
+%     NNS = GPSO_Search( samp.coord, samp.score );
+% 
+%     % set initial points
+%     if ~isstruct(init)
+%         x = self.srgt.normalise(init);
+%         n = size(x,1);
+%         y = nan(n,1);
+%         for k = 1:n
+%             y(k) = NNS.getScore(x(k,:));
+%         end
+%     else
+%         x = self.srgt.normalise(init.coord);
+%         n = size(x,1);
+%         y = init.score(:);
+%     end
+%     self.srgt.append( x, [y,zeros(n,1),y], true );
+% 
+%     % find centre of the domain
+%     x = 0.5 + zeros(1,nd);
+%     y = NNS.getScore(x);
+%     k = self.srgt.append( x, [y,0,y], true );
+% 
+%     % initialise tree
+%     self.tree.init(nd,k);
+% 
+% end
+%
+% function self = rebuild( self, samp, maxdepth, domain, Xmet, Xprm, varargin )
+% %
+% % self = rebuild( self, samp, maxdepth, domain, Xmet, Xprm, varargin )
+% %
+% % Rebuild optimiser state from input sample.
+% %
+% % samp must be a structure with fields {coord,score}, which should contain initial 
+% %   points as well as points sampled during optimisation.
+% % maxdepth is there to limit the search for sampled points in children intervals,
+% %   mainly because the middle child will always be found due to the recursive nature
+% %   of ternary splits.
+% %
+% % domain, Xmet and Xprm, and other options are as usual (see method run).
+% % UpdateCycle is ignored.
+% %
+% % JH
+% 
+%     % check sample and maxdepth
+%     assert( isstruct(samp) && all(isfield(samp,{'coord','score'})), 'Bad sample.' );
+%     Nsamp = numel(samp.score);
+% 
+%     assert( size(samp.coord,1) == Nsamp, 'Sample size mismatch.' );
+%     assert( dk.is.number(maxdepth) && maxdepth >= log(Nsamp)/log(3), 'Bad depth.' );
+% 
+%     % parse other inputs
+%     [~, domain, ~, init, Xplore, ~, verbose] = ...
+%         checkargs( @(x)x, domain, Inf, Xmet, Xprm, varargin{:} );
+%     self.verb = verbose;
+% 
+%     % re-initialise surrogate
+%     NNS = self.reinitialise( domain, init, samp );
+% 
+%     % exploration parameters
+%     varsigma = self.srgt.get_varsigma();
+% 
+%     Xmet = Xplore.method;
+%     Xprm = Xplore.param;
+%     Xfun = struct( 'tree', @self.explore_tree, 'samp', @self.explore_samp );
+%     Xfun = Xfun.(Xmet);
+% 
+%     % recursive DFS with feedback
+%     function yes = should_split(pid,node,h)
+%         test = @(k) (k > 0) && (k ~= pid);
+% 
+%         if h == maxdepth
+%             yes = test(NNS.find(node.coord));
+%         else
+%             child = recursive_split( node, 1 );
+%             yes = test(NNS.find(child(1).coord)) ...
+%                 || test(NNS.find(child(2).coord)) ...
+%                 || test(NNS.find(child(3).coord)) ...
+%                 || should_split(pid,child(1),h+1) ...
+%                 || should_split(pid,child(2),h+1) ...
+%                 || should_split(pid,child(3),h+1);
+%         end
+%     end
+% 
+%     function s = get_score(node)
+%         try
+%             s = NNS.getScore(node.coord);
+%             s = [s,0,s];
+%         catch
+%             s = Xfun( node, Xprm, varsigma );
+%         end
+%     end
+% 
+%     for h = 1:maxdepth
+% 
+%         w = self.tree.width(h);
+%         for i = 1:w
+%             n = self.get_node(h,i);
+%             k = NNS.find(n.coord);
+%             if (k > 0) && should_split(k,n,h)
+% 
+%                 % Split leaf along largest dimension
+%                 [g,d,x,s] = split_largest_dimension( self.tree.level(h), i, n.coord );
+%                 U = split_tree( self.tree.level(h), i, g, d, x, s );
+%                 Uget = @(j) struct( ...
+%                     'lower', U.lower(j,:), ...
+%                     'upper', U.upper(j,:), ...
+%                     'coord', U.coord(j,:)  ...
+%                 );
+% 
+%                 % Explore each new leaf with a uniform sample
+%                 best_g = get_score(Uget(1));
+%                 best_d = get_score(Uget(2));
+%                 best_x = get_score(Uget(3));
+% 
+%                 % Append points and update tree
+%                 k = self.srgt.append( [g;d;x], [best_g;best_d;best_x], true );
+%                 self.tree.split( h, i, U.lower, U.upper, k );
+% 
+%             end
+%         end
+% 
+%         % early canceling
+%         if all(NNS.found), break; end
+% 
+%     end
+% 
+%     % check that all points are found
+%     assert( all(NNS.found), 'Some points were not found.' );
+% 
+% end
