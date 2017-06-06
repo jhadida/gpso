@@ -20,15 +20,13 @@ function [out,obj,foo] = peaks( nmax, xdom, ydom, varargin )
     
 end
 
-function z = objfun(x,y)
+function z = objfun(in)
 
     DO_ROTATE=true;
     OFFSET=0;
 
-    if nargin == 1
-        y = x(2);
-        x = x(1);
-    end
+    x = in(:,1);
+    y = in(:,2);
     
     if DO_ROTATE
         ct = cos(pi/4);

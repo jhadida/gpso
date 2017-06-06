@@ -36,8 +36,8 @@ function [out,obj] = twodim( objfun, xdom, ydom, nmax, varargin )
     gy = linspace( ydom(1), ydom(2), ny );
     [gx,gy] = meshgrid( gx, gy );
     
-    ref = objfun( gx, gy ); % reference surface
     grd = [gx(:),gy(:)]; % grid points as nx2 array
+    ref = reshape(objfun(grd),size(gx)); % reference surface
     scl = [nx,ny]; % size of the grid
     
     % figures
@@ -82,9 +82,9 @@ function draw_surrogate(r,m,s,v,opt)
     
     subplot(1,2,2);
     if opt.drawucb 
-        surf(m+v*s,r-m); 
+        surf(m+v*s,r-m,'EdgeColor','none'); 
     else
-        surf(m,r-m); 
+        surf(m,r-m,'EdgeColor','none'); 
     end
     caxis(opt.eaxis); axis vis3d; 
     

@@ -17,13 +17,10 @@ function [out,obj] = rosenbrock( nmax, xdom, ydom, varargin )
     
 end
 
-function z = objfun(x,y)
+function z = objfun(in)
 
-    if nargin == 1
-        y = x(2);
-        x = x(1);
-    end
-
+    x = in(:,1);
+    y = in(:,2);
     z = -exp(x-2*x.^2-y.^2).*sin(6*(x+y+x.*y.^2));
 
 end

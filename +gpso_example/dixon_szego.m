@@ -17,13 +17,10 @@ function [out,obj] = dixon_szego( nmax, xdom, ydom, varargin )
     
 end
 
-function z = objfun(x,y)
+function z = objfun(in)
 
-    if nargin == 1
-        y = x(2);
-        x = x(1);
-    end
-
+    x = in(:,1);
+    y = in(:,2);
     z = (4-2.1*x.^2+ x.^4/3).*x.^2 + x.*y + 4*(y.^2-1).*y.^2;
     z = 10 - z;
 
