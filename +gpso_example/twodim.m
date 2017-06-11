@@ -41,7 +41,7 @@ function [out,obj] = twodim( objfun, xdom, ydom, nmax, varargin )
     scl = [nx,ny]; % size of the grid
     
     % figures
-    figure; colormap('jet'); dk.ui.fig.resize(gcf,[500,1100]);
+    figure; colormap('jet'); dk.fig.resize(gcf,[500,1100]);
     
     % run optimisation
     domain = [ xdom(1:2); ydom(1:2) ];
