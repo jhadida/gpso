@@ -717,8 +717,8 @@ end
 
 
 
-% DOESNT WORK FOR NOW
-%
+% % DOESNT WORK FOR NOW
+% %
 % function NNS = reinitialise(self,domain,init,samp)
 % 
 %     % initialise surrogate
@@ -732,7 +732,7 @@ end
 %     self.srgt.gp_update( samp.coord, samp.score );
 % 
 %     % create searcher
-%     NNS = GPSO_Search( samp.coord, samp.score );
+%     NNS = dk.obj.GeoData_NNS( samp.coord, samp.score );
 % 
 %     % set initial points
 %     if ~isstruct(init)
@@ -740,7 +740,7 @@ end
 %         n = size(x,1);
 %         y = nan(n,1);
 %         for k = 1:n
-%             y(k) = NNS.getScore(x(k,:));
+%             y(k) = NNS.get_data(x(k,:));
 %         end
 %     else
 %         x = self.srgt.normalise(init.coord);
@@ -751,14 +751,14 @@ end
 % 
 %     % find centre of the domain
 %     x = 0.5 + zeros(1,nd);
-%     y = NNS.getScore(x);
+%     y = NNS.get_data(x);
 %     k = self.srgt.append( x, [y,0,y], true );
 % 
 %     % initialise tree
 %     self.tree.init(nd,k);
 % 
 % end
-%
+% 
 % function self = rebuild( self, samp, maxdepth, domain, Xmet, Xprm, varargin )
 % %
 % % self = rebuild( self, samp, maxdepth, domain, Xmet, Xprm, varargin )
@@ -818,7 +818,7 @@ end
 % 
 %     function s = get_score(node)
 %         try
-%             s = NNS.getScore(node.coord);
+%             s = NNS.get_data(node.coord);
 %             s = [s,0,s];
 %         catch
 %             s = Xfun( node, Xprm, varsigma );
@@ -855,11 +855,11 @@ end
 %         end
 % 
 %         % early canceling
-%         if all(NNS.found), break; end
+%         if all(NNS.access), break; end
 % 
 %     end
 % 
 %     % check that all points are found
-%     assert( all(NNS.found), 'Some points were not found.' );
+%     assert( all(NNS.access), 'Some points were not found.' );
 % 
 % end
