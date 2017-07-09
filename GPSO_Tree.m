@@ -112,37 +112,7 @@ classdef GPSO_Tree < handle
             n.samp   = self.samp(h,k);
             n.leaf   = self.leaf(h,k);
         end
-        
-%         function self=split(self,h,k,l,u,s)
-%         % 
-%         % h: parent level
-%         % i: parent id 
-%         % l: nxd array of lower bound(s)
-%         % u: nxd array of upper bound(s)
-%         % s: nx1 sample id of the surrogate
-%         %
-%         
-%             assert( self.leaf(h,k), '[bug] Splitting non-leaf node.' );
-%             self.level(h).leaf(k) = false;
-%             
-%             n = numel(s);
-%             m = h+1;
-%             
-%             if m > self.depth
-%                 self.level(m).leaf = true(0); % initialise next level
-%             end
-%             
-%             self.level(m).parent = [self.level(m).parent, k*ones(1,n)];
-%             self.level(m).lower  = [self.level(m).lower; l];
-%             self.level(m).upper  = [self.level(m).upper; u];
-%             self.level(m).samp   = [self.level(m).samp, s];
-%             self.level(m).leaf   = [self.level(m).leaf, true(1,n)];
-%             
-%             self.Ns = self.Ns+1;
-%             self.Nl = self.Nl+n-1;
-%             
-%         end
-
+ 
         function child=split(self,h,k,srgt,xmet,xprm)
         % 
         % h,k: level+id of node to split
