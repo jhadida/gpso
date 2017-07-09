@@ -1,12 +1,15 @@
 classdef GPSO_Tree < handle
-    
+%
+% Free software provided under AGPLv3 license (see README).
+% Copyright Jonathan Hadida (jhadida@fmrib.ox.ac.uk), July 2017.
+
     properties (SetAccess = private)
-        level;
-        Nl, Ns; % number of leaves/splits
+        level % struct-array storing tree contents level by level
+        Nl,Ns % number of leaves/splits
     end
     
     properties (Transient,Dependent)
-        depth;
+        depth
     end
     
     methods
@@ -110,33 +113,138 @@ classdef GPSO_Tree < handle
             n.leaf   = self.leaf(h,k);
         end
         
-        function self=split(self,h,k,l,u,s)
+%         function self=split(self,h,k,l,u,s)
+%         % 
+%         % h: parent level
+%         % i: parent id 
+%         % l: nxd array of lower bound(s)
+%         % u: nxd array of upper bound(s)
+%         % s: nx1 sample id of the surrogate
+%         %
+%         
+%             assert( self.leaf(h,k), '[bug] Splitting non-leaf node.' );
+%             self.level(h).leaf(k) = false;
+%             
+%             n = numel(s);
+%             m = h+1;
+%             
+%             if m > self.depth
+%                 self.level(m).leaf = true(0); % initialise next level
+%             end
+%             
+%             self.level(m).parent = [self.level(m).parent, k*ones(1,n)];
+%             self.level(m).lower  = [self.level(m).lower; l];
+%             self.level(m).upper  = [self.level(m).upper; u];
+%             self.level(m).samp   = [self.level(m).samp, s];
+%             self.level(m).leaf   = [self.level(m).leaf, true(1,n)];
+%             
+%             self.Ns = self.Ns+1;
+%             self.Nl = self.Nl+n-1;
+%             
+%         end
+
+        function child=split(self,h,k,srgt,xmet,xprm)
         % 
-        % h: parent level
-        % k: parent id 
-        % l: nxd array of lower bound(s)
-        % u: nxd array of upper bound(s)
-        % s: nx1 sample id of the surrogate
+        % h,k: level+id of node to split
+        % srgt: surrogate object
+        % xmet,xprm: exploration options
         %
         
+            % make sure it's a leaf
             assert( self.leaf(h,k), '[bug] Splitting non-leaf node.' );
-            self.level(h).leaf(k) = false;
             
-            n = numel(s);
-            m = h+1;
-            
-            if m > self.depth
-                self.level(m).leaf = true(0); % initialise next level
+            % select exploration method
+            switch lower(xmet)
+                case {'tree','grow'}
+                    vcat = @(x) vertcat(x.coord);
+                    xfun = @(node) vcat(self.grow(node,xprm));
+                case {'samp','urand','sample'}
+                    xfun = @(node) self.sample(node,xprm);
+                otherwise
+                    error( 'Unknown exploration method %s', xmet );
             end
             
-            self.level(m).parent = [self.level(m).parent, k*ones(1,n)];
-            self.level(m).lower  = [self.level(m).lower; l];
-            self.level(m).upper  = [self.level(m).upper; u];
-            self.level(m).samp   = [self.level(m).samp, s];
-            self.level(m).leaf   = [self.level(m).leaf, true(1,n)];
+            % children are in the next level
+            m = h+1;
+            if m > self.depth % initialise if necessary
+                self.level(m).leaf = true(0); 
+            end
             
+            % split node along largest dimension
+            parent = self.node(h,k);
+            child  = recursive_split( parent );
+            
+            % evaluate each new leaf
+            nc = numel(child);
+            varsigma = srgt.get_varsigma();
+            for c = 1:nc
+                [~,child(c).best] = srgt.gp_eval( xfun(child(c)), varsigma );
+            end
+            
+            % insert children into surrogate
+            sid = srgt.append( vertcat(child.coord), vertcat(child.best), true );
+            
+            % insert children into tree
+            self.level(m).parent = [self.level(m).parent, k*ones(1,nc)];
+            self.level(m).lower  = [self.level(m).lower; vertcat(child.lower)];
+            self.level(m).upper  = [self.level(m).upper; vertcat(child.upper)];
+            self.level(m).samp   = [self.level(m).samp, sid];
+            self.level(m).leaf   = [self.level(m).leaf, true(1,nc)];
+            
+            % parent is no longer a leaf
+            self.level(h).leaf(k) = false;
+            
+            % update leaf/split counts
             self.Ns = self.Ns+1;
-            self.Nl = self.Nl+n-1;
+            self.Nl = self.Nl+nc-1;
+            
+        end
+
+        function children = grow(self,node,d)
+        %
+        % node: node structure, or [h,k] vector
+        % d: depth of the subtree to grow
+        %   (WARNING: tree grows exponentially fast!)
+        %
+        % Grow tree from node (h,k) without saving anything.
+        % Return a struct-array of children nodes with fields {lower,upper,coord}.
+        %
+        % NOTE: coordinates are NORMALISED here
+        %
+        
+            dk.assert( d <= 8, [ ... 
+                'This is safeguard error to prevent deep tree explorations.\n' ...
+                'If you meant to set the option xmet="tree" with a depth of %d (%d samples),\n' ...
+                'then please comment this message in the method grow.\n' ...
+            ], d, 3^d );
+        
+            
+            if ~isstruct(node)
+                node = self.node( node(1), node(2) );
+            end
+            node.coord = (node.lower + node.upper)/2;
+            children = recursive_split( node, d );
+            
+        end
+        
+        function points = sample(self,node,ns)
+        %
+        % node: node structure, or [h,k] vector
+        % ns: number of random points to sample
+        %
+        % Sample n points within node (h,k) uniformly randomly.
+        %
+        % NOTE: coordinates are NORMALISED here
+        %
+        
+            if ~isstruct(node)
+                node = self.node( node(1), node(2) );
+            end
+            
+            nd = numel(node.upper);
+            delta = node.upper - node.lower;
+            points = bsxfun( @times, rand(ns,nd), delta );
+            points = bsxfun( @plus, points, node.lower );
             
         end
         
@@ -153,6 +261,7 @@ classdef GPSO_Tree < handle
         % Note: children are necessarily next to each other, so if C is the index of the first child,
         %   then the other children are C+1 and C+2.
         % 
+        % JH
         
             d = self.depth; % tree depth
             w = arrayfun( @(x) numel(x.samp), self.level ); % width of each level
@@ -201,5 +310,60 @@ classdef GPSO_Tree < handle
         end
         
     end
+    
+end
+
+
+% 
+%     node.lower                 node.upper
+% Lvl      \                         /
+% h:        =-----------x-----------=
+% 
+%
+% h+1:      =---g---=---x---=---d---=
+%          /        |       |        \
+%        Tmin     Gmax     Dmin     Tmax
+%
+function children = recursive_split(node,count)
+
+    if nargin < 2, count=1; end
+
+    % bounds of parent node
+    Pmin = node.lower;
+    Pmax = node.upper;
+    
+    % halting condition
+    if count == 0 
+        children = node;
+        return; 
+    end
+    
+    % barycenter of children subintervals
+    M = (Pmin + Pmax) / 2;
+    L = M;
+    R = M;
+    
+    [~,s] = max( Pmax - Pmin ); % split along largest dimension
+    L(s)  = (5*Pmin(s) +   Pmax(s))/6;
+    R(s)  = (  Pmin(s) + 5*Pmax(s))/6;
+    
+    % compute bounds of children
+    Lmax = Pmax;
+    Rmin = Pmin;
+    Mmin = Pmin;
+    Mmax = Pmax;
+    
+    Lmax(s) = (2*Pmin(s) +   Pmax(s))/3.0;
+    Rmin(s) = (  Pmin(s) + 2*Pmax(s))/3.0;
+    Mmin(s) = Lmax(s);
+    Mmax(s) = Rmin(s);
+    
+    % pack as struct-array
+    make_node = @(ll,uu,xx) struct('lower',ll,'upper',uu,'coord',xx,'sdim',s);
+    children  = [ ... WARNING: Order matters!
+        recursive_split(make_node(Pmin,Lmax,L), count-1), ... left
+        recursive_split(make_node(Rmin,Pmax,R), count-1), ... right
+        recursive_split(make_node(Mmin,Mmax,M), count-1)  ... middle
+    ];
     
 end

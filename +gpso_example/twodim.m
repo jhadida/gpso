@@ -81,10 +81,12 @@ function draw_surrogate(r,m,s,v,opt)
         title('Partition of Search Space');
     
     subplot(1,2,2);
+    args = {'EdgeColor','none'};
+    args = {};
     if opt.drawucb 
-        surf(m+v*s,r-m,'EdgeColor','none'); 
+        surf(m+v*s,r-m,args{:}); 
     else
-        surf(m,r-m,'EdgeColor','none'); 
+        surf(m,r-m,args{:});
     end
     caxis(opt.eaxis); axis vis3d; 
     

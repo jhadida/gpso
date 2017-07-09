@@ -1,20 +1,23 @@
 classdef GPSO < handle
-    
+%
+% Free software provided under AGPLv3 license (see README).
+% Copyright Jonathan Hadida (jhadida@fmrib.ox.ac.uk), July 2017.
+
     properties
-        verb % verbose switch
+        verb % verbose switch (true/false)
     end
     
     properties (SetAccess=private)
         srgt % GP surrogate
-        tree % sampling tree
+        tree % partition tree
         iter % iteration data
     end
     
     properties (Transient,Dependent)
-        Niter;
+        Niter
     end
     
-    % use events to hook additional processing steps
+    % use events to trigger processing/monitoring functions during optimisation
     events
         PostInitialise
         PreIteration
@@ -22,6 +25,7 @@ classdef GPSO < handle
         PostUpdate
         PreFinalise
     end
+    
     
     
     
@@ -117,6 +121,7 @@ classdef GPSO < handle
         %   split at least once. This becomes rapidly impractical as D increases, so you might want
         %   to select the sampling method instead if D is large.
         %
+        %
         % InitSample: default L1-ball vertices
         %   Initial set of points to use for initialisation.
         %   Input can be an array of coordinates, in which case points are evaluated before optimisation.
@@ -142,7 +147,7 @@ classdef GPSO < handle
             % initialisation
             gpml_start();
             self.info( 'Start %d-dimensional optimisation, with budget of %d evaluations...', Ndim, Neval );
-            [i_max,k_max] = self.initialise( domain, objfun, init );
+            i_max = self.initialise( domain, objfun, init );
             upn = self.step_update(upc,0);
             self.notify( 'PostInitialise' );
             
@@ -152,8 +157,8 @@ classdef GPSO < handle
                 self.info('\t------------------------------');
                 self.notify( 'PreIteration' );
                 
-                self.step_explore(i_max,k_max,Xplore);
-                [i_max,k_max] = self.step_select(objfun);
+                self.step_explore(i_max,Xplore);
+                i_max = self.step_select(objfun);
                 upn = self.step_update(upc,upn);
                 
                 if nnz(i_max) == 0
@@ -184,8 +189,8 @@ classdef GPSO < handle
         % Resume optimisation, typically from unserialised GPSO object.
         % See run method above for description of inputs and options (InitSample ignored).
         %
-        % NOTE: the domain is not input here (extracted from surrogate instead).
-        % You do need to provide the same objective function though, and the same exploration
+        % NOTE: the domain is not input here (extracted from the surrogate instead).
+        % You DO need to provide the same objective function though, and the same exploration
         % options set during the original run, to be consistent.
         %
         % JH
@@ -215,9 +220,9 @@ classdef GPSO < handle
                 if skipexp
                     skipexp = false; 
                 else
-                    self.step_explore(i_max,k_max,Xplore);
+                    self.step_explore(i_max,Xplore);
                 end
-                [i_max,k_max] = self.step_select(objfun);
+                i_max = self.step_select(objfun);
                 upn = self.step_update(upc,upn);
                 
                 if nnz(i_max) == 0
@@ -241,83 +246,117 @@ classdef GPSO < handle
         
         end
         
-        function node = get_node(self,h,i)
-        %
-        % h: depth
-        % i: depth-specific node index
-        %
-        % Get a node of the tree, with coordinates and sample info.
-        %
-        
-            node = self.tree.node(h,i);
-            node.coord = self.srgt.x(node.samp,:);
-            node.samp  = self.srgt.y(node.samp,:);
-        end
-        
-        function [best,S] = explore_tree(self,node,depth,varsigma)
-        %
-        % node: either a 1x2 array [h,i] (cf get_node), or a node structure
-        % depth: how deep the exploration tree should be 
-        %   (WARNING: tree grows exponentially!)
-        % varsigma: optimism constant to be used locally for UCB
-        %
-        % Explore node by growing exhaustive partition tree, using surrogate for evaluation.
-        %
-            
-            dk.assert( depth <= 8, [ ... 
-                'This is safeguard error to prevent deep tree explorations.\n' ...
-                'If you meant to set the option xmet="tree" with a depth of %d (%d samples),\n' ...
-                'then please comment this message in the method explore_tree.\n' ...
-            ], depth, 3^depth );
-        
-            % get node if index were passed
-            if ~isstruct(node)
-                node = self.get_node(node(1),node(2));
-            end
-            
-            % number of points to sample
-            tmp = recursive_split( node, depth );
-            S.coord = vertcat(tmp.coord);
-            
-            % evaluate those points
-            [mu,sigma] = self.srgt.gp_call( S.coord );
-            ucb = mu + varsigma*sigma;
-            
-            [u,k]  = max(ucb);
-            best   = [ mu(k), sigma(k), u ];
-            S.samp = [ mu, sigma, ucb ];
-            
-        end
-        
-        function [best,S] = explore_samp(self,node,ns,varsigma)
-        %
-        % node: either a 1x2 array [h,i] (cf get_node), or a node structure
-        % ns: number of random points to draw within the node
-        % varsigma: optimism constant to be used locally for UCB
-        %
-        % Explore node with a uniformly random sample, using surrogate for evaluation. 
-        %
-            
-            % get node if index were passed
-            if ~isstruct(node)
-                node = self.get_node(node(1),node(2));
-            end
-            
-            % sample points at random in the node
-            nd = self.srgt.Nd;
-            delta = node.upper - node.lower;
-            S.coord = bsxfun( @times, rand(ns,nd), delta );
-            S.coord = bsxfun( @plus, S.coord, node.lower );
-            
-            % evaluate those points
-            [mu,sigma] = self.srgt.gp_call( S.coord );
-            ucb = mu + varsigma*sigma;
-            
-            [u,k]  = max(ucb);
-            best   = [ mu(k), sigma(k), u ];
-            S.samp = [ mu, sigma, ucb ];
-            
-        end
+%         function node = get_node(self,h,i)
+%         %
+%         % h: depth
+%         % i: depth-specific node index
+%         %
+%         % Get a node of the tree, with coordinates and sample info.
+%         %
+%         
+%             node = self.tree.node(h,i);
+%             node.coord = self.srgt.x(node.samp,:);
+%             node.samp  = self.srgt.y(node.samp,:);
+%         end
+%
+%         function [best,S] = explore(self,h,i,method,param,varsigma)
+%         %
+%         % h,i: node identifiers
+%         % method: one of {tree,samp}
+%         % param: parameter(s) for the exploration method
+%         % varsigma: optimism constant to be used locally for UCB
+%         %
+%         % Extend partition tree at node (h,i) using specified method.
+%         % Evaluate the score of all children using GP surrogate and return best one.
+%         %
+%         % If varsigma is omitted, it is taken from the surrogate in its current state.
+%         %
+%         
+%             if nargin < 6, varsigma = self.srgt.get_varsigma(); end
+%         
+%             switch lower(method)
+%                 case {'tree','grow'}
+%                     S.coord = self.tree.grow(h,i,param);
+%                 case {'samp','urand','sample'}
+%                     S.coord = self.tree.sample(h,i,param);
+%                 otherwise
+%                     error( 'Unknown exploration method %s', method );
+%             end
+%             
+%             % evaluate those points
+%             [mu,sigma] = self.srgt.gp_call( S.coord ); % normalised coordinates
+%             ucb = mu + varsigma*sigma;
+%             
+%             [u,k]  = max(ucb);
+%             best   = [ mu(k), sigma(k), u ];
+%             S.samp = [ mu, sigma, ucb ];
+%             
+%         end
+%         
+%         function [best,S] = explore_tree(self,node,depth,varsigma)
+%         %
+%         % node: either a 1x2 array [h,i] (cf get_node), or a node structure
+%         % depth: how deep the exploration tree should be 
+%         %   (WARNING: tree grows exponentially fast!)
+%         % varsigma: optimism constant to be used locally for UCB
+%         %
+%         % Explore node by growing exhaustive partition tree, using surrogate for evaluation.
+%         %
+%             
+%             dk.assert( depth <= 8, [ ... 
+%                 'This is safeguard error to prevent deep tree explorations.\n' ...
+%                 'If you meant to set the option xmet="tree" with a depth of %d (%d samples),\n' ...
+%                 'then please comment this message in the method explore_tree.\n' ...
+%             ], depth, 3^depth );
+%         
+%             % get node if index were passed
+%             if ~isstruct(node)
+%                 node = self.get_node(node(1),node(2));
+%             end
+%             
+%             % number of points to sample
+%             tmp = recursive_split( node, depth );
+%             S.coord = vertcat(tmp.coord);
+%             
+%             % evaluate those points
+%             [mu,sigma] = self.srgt.gp_call( S.coord ); % normalised coordinates
+%             ucb = mu + varsigma*sigma;
+%             
+%             [u,k]  = max(ucb);
+%             best   = [ mu(k), sigma(k), u ];
+%             S.samp = [ mu, sigma, ucb ];
+%             
+%         end
+%         
+%         function [best,S] = explore_samp(self,node,ns,varsigma)
+%         %
+%         % node: either a 1x2 array [h,i] (cf get_node), or a node structure
+%         % ns: number of random points to draw within the node
+%         % varsigma: optimism constant to be used locally for UCB
+%         %
+%         % Explore node with a uniformly random sample, using surrogate for evaluation. 
+%         %
+%             
+%             % get node if index were passed
+%             if ~isstruct(node)
+%                 node = self.get_node(node(1),node(2));
+%             end
+%             
+%             % sample points at random in the node
+%             nd = self.srgt.Nd;
+%             delta = node.upper - node.lower;
+%             S.coord = bsxfun( @times, rand(ns,nd), delta );
+%             S.coord = bsxfun( @plus, S.coord, node.lower );
+%             
+%             % evaluate those points
+%             [mu,sigma] = self.srgt.gp_call( S.coord );
+%             ucb = mu + varsigma*sigma;
+%             
+%             [u,k]  = max(ucb);
+%             best   = [ mu(k), sigma(k), u ];
+%             S.samp = [ mu, sigma, ucb ];
+%             
+%         end
         
         % serialise data to be saved
         function D = serialise(self,filename)
@@ -342,6 +381,7 @@ classdef GPSO < handle
         end
         
     end
+    
     
     
     
@@ -415,7 +455,7 @@ classdef GPSO < handle
         end
         
         % get k_max from i_max
-        function k_max = get_k_max(self,i_max)
+        function k_max = imax2kmax(self,i_max)
             
             depth = self.tree.depth;
             k_max = zeros(1,depth);
@@ -435,6 +475,7 @@ classdef GPSO < handle
         
     %% RUNTIME BREAKDOWN
     %
+    % The different steps of the algorithm.
     %
     methods (Hidden,Access=private)
         
@@ -449,8 +490,8 @@ classdef GPSO < handle
                 x = init;
                 n = size(x,1);
                 y = nan(n,1);
-                for k = 1:n
-                    y(k) = objfun(x(k,:));
+                for i = 1:n
+                    y(i) = objfun(x(i,:));
                 end
             else
                 self.info('Using user-specified initial sample.');
@@ -468,9 +509,9 @@ classdef GPSO < handle
             % initialise tree
             self.tree.init(nd,k);
             
-            % select root
+            % select root for split
             i_max = 1;
-            k_max = k;
+            k_max = k; % corresponding surrogate index
             
         end
         
@@ -479,7 +520,7 @@ classdef GPSO < handle
             % list all evaluated samples
             [x,f] = self.srgt.samp_evaluated(true);
             out.samp.x = x;
-            out.samp.f = f;
+            out.samp.f = f; % associated scores
             
             % get best sample
             [x,f] = self.srgt.best_sample(true);
@@ -488,55 +529,73 @@ classdef GPSO < handle
             
         end
         
+%         % exploration step: split and sample
+%         function step_explore(self,i_max,Xplore)
+%             
+%             self.info('\tStep 1:');
+%             depth = self.tree.depth;
+%             varsigma = self.srgt.get_varsigma();
+%             
+%             Xmet = Xplore.method;
+%             Xprm = Xplore.param;
+%             Xfun = struct( 'tree', @self.explore_tree, 'samp', @self.explore_samp );
+%             Xfun = Xfun.(Xmet);
+%             
+%             for h = 1:depth
+%             if i_max(h) > 0
+%                 
+%                 imax = i_max(h);
+%                 kmax = self.tree.samp(h,imax);
+%                 
+%                 % Grow tree from selected leaves
+%                 [g,d,x,s] = split_largest_dimension( self.tree.level(h), imax, self.srgt.coord(kmax) );
+%                 U = split_tree( self.tree.level(h), imax, g, d, x, s );
+%                 Uget = @(n) struct( ...
+%                     'lower', U.lower(n,:), ...
+%                     'upper', U.upper(n,:), ...
+%                     'coord', U.coord(n,:)  ...
+%                 );
+%                 
+%                 % Explore each new leaf
+%                 best_g = Xfun( Uget(1), Xprm, varsigma );
+%                 best_d = Xfun( Uget(2), Xprm, varsigma );
+%                 best_x = Xfun( Uget(3), Xprm, varsigma );
+%                 
+%                 % Append points and update tree
+%                 k = self.srgt.append( [g;d;x], [best_g;best_d;best_x], true );
+%                 self.tree.split( h, imax, U.lower, U.upper, k );
+%                 self.info('\t\t[h=%02d] Split dimension %d of leaf %d',h,s,imax);
+%                 
+%             end % if
+%             end % for
+%             
+%         end
+        
+
         % exploration step: split and sample
-        function step_explore(self,i_max,k_max,Xplore)
+        function step_explore(self,i_max,xobj)
             
             self.info('\tStep 1:');
             depth = self.tree.depth;
-            varsigma = self.srgt.get_varsigma();
-            
-            Xmet = Xplore.method;
-            Xprm = Xplore.param;
-            Xfun = struct( 'tree', @self.explore_tree, 'samp', @self.explore_samp );
-            Xfun = Xfun.(Xmet);
             
             for h = 1:depth
             if i_max(h) > 0
                 
-                imax = i_max(h);
-                kmax = k_max(h);
-                
-                % Split leaf along largest dimension
-                [g,d,x,s] = split_largest_dimension( self.tree.level(h), imax, self.srgt.coord(kmax) );
-                U = split_tree( self.tree.level(h), imax, g, d, x, s );
-                Uget = @(n) struct( ...
-                    'lower', U.lower(n,:), ...
-                    'upper', U.upper(n,:), ...
-                    'coord', U.coord(n,:)  ...
-                );
-                
-                % Explore each new leaf
-                best_g = Xfun( Uget(1), Xprm, varsigma );
-                best_d = Xfun( Uget(2), Xprm, varsigma );
-                best_x = Xfun( Uget(3), Xprm, varsigma );
-                
-                % Append points and update tree
-                k = self.srgt.append( [g;d;x], [best_g;best_d;best_x], true );
-                self.tree.split( h, imax, U.lower, U.upper, k );
-                self.info('\t\t[h=%02d] Split dimension %d of leaf %d',h,s,imax);
+                self.tree.split( h, i_max(h), self.srgt, xobj.method, xobj.param );
+                self.info('\t\t[h=%02d] Split leaf %d',h,i_max(h));
                 
             end % if
             end % for
             
         end
-        
+
         % selection step: select and evaluate
         function [i_max,k_max] = step_select(self,objfun)
             
             self.info('\tStep 2:');
             depth = self.tree.depth;
-            i_max = zeros(depth,1);
-            k_max = zeros(depth,1);
+            i_max = zeros(depth,1); % tree indices
+            k_max = zeros(depth,1); % corresponding surrogate indices
             v_max = -inf;
             
             for h = 1:depth
@@ -555,15 +614,17 @@ classdef GPSO < handle
                     end
                 end
 
+                % if a leaf is selected, and that it is gp-based, evaluate it
+                imax = i_max(h);
                 kmax = k_max(h);
-                if (kmax > 0) && self.srgt.is_gp_based(kmax)
-                    self.info('\t\t[h=%02d] Sampling GP-based leaf %d with UCB %g',h,kmax,v_max);
+                if (imax > 0) && self.srgt.is_gp_based(kmax)
+                    self.info('\t\t[h=%02d] Sampling GP-based leaf %d with UCB %g',h,imax,v_max);
                     f = objfun(self.srgt.coord(kmax,true));
                     self.srgt.update( kmax, [f,0,f] ); % Note: important NOT to keep v_max here
                 end
 
-                if i_max(h)
-                    self.info('\t\t[h=%02d] Select leaf %d with score %g',h,i_max(h),v_max);
+                if imax > 0
+                    self.info('\t\t[h=%02d] Select leaf %d with score %g',h,imax,v_max);
                 else
                     self.info('\t\t[h=%02d] No leaf selected',h);
                 end
@@ -580,6 +641,10 @@ classdef GPSO < handle
     end
     
 end
+
+
+
+
 
 % parse and verify inputs / options
 function [objfun, domain, Neval, init, Xplore, upc, vrb] ...
@@ -627,91 +692,6 @@ function [objfun, domain, Neval, init, Xplore, upc, vrb] ...
     dk.assert( dk.is.number(Neval) && Neval>NeMin, 'Neval should be >%d.', NeMin );
     dk.assert( dk.is.number(upc) && upc>0, 'upc should be >0.' );
     dk.assert( isscalar(vrb) && islogical(vrb), 'verbose should be boolean.' );
-
-end
-
-% 
-%       T.lower(k,:)              T.upper(k,:)
-% Lvl      \                         /
-% k:        =-----------x-----------=
-% 
-%
-% k+1:      =---g---=---x---=---d---=
-%          /        |       |        \
-%        Tmin     Gmax     Dmin     Tmax
-%
-
-function children = recursive_split(node,k)
-
-    Tmin = node.lower;
-    Tmax = node.upper;
-    
-    if k == 0 % termination clause
-        children = node;
-        return; 
-    end
-    
-    x = node.coord(:)';
-    g = x;
-    d = x;
-    
-    [~,s] = max( Tmax - Tmin );
-    g(s)  = (5*Tmin(s) +   Tmax(s))/6;
-    d(s)  = (  Tmin(s) + 5*Tmax(s))/6;
-    
-    Gmax = Tmax;
-    Dmin = Tmin;
-    Xmin = Tmin;
-    Xmax = Tmax;
-    
-    Gmax(s) = (2*Tmin(s) +   Tmax(s))/3.0;
-    Dmin(s) = (  Tmin(s) + 2*Tmax(s))/3.0;
-    Xmin(s) = Gmax(s);
-    Xmax(s) = Dmin(s);
-    
-    % recursion
-    make_node = @(ll,uu,xx) struct('lower',ll,'upper',uu,'coord',xx);
-    children  = [ ...
-        recursive_split(make_node(Tmin,Gmax,g),k-1);
-        recursive_split(make_node(Dmin,Tmax,d),k-1);
-        recursive_split(make_node(Xmin,Xmax,x),k-1)
-    ];
-
-end
-
-function [g,d,x,s] = split_largest_dimension(T,k,x)
-
-    g = x;
-    d = x;
-
-    Tmin = T.lower(k,:);
-    Tmax = T.upper(k,:);
-    
-    [~,s] = max( Tmax - Tmin );
-    g(s)  = (5*Tmin(s) +   Tmax(s))/6;
-    d(s)  = (  Tmin(s) + 5*Tmax(s))/6;
-    
-end
-
-function U = split_tree(T,k,g,d,x,s)
-
-    Tmin = T.lower(k,:);
-    Tmax = T.upper(k,:);
-    
-    Gmax = Tmax;
-    Dmin = Tmin;
-    Xmin = Tmin;
-    Xmax = Tmax;
-    
-    Gmax(s) = (2*Tmin(s) +   Tmax(s))/3.0;
-    Dmin(s) = (  Tmin(s) + 2*Tmax(s))/3.0;
-    Xmin(s) = Gmax(s);
-    Xmax(s) = Dmin(s);
-    
-    % careful, the order matters
-    U.coord = [g;d;x];
-    U.lower = [Tmin;Dmin;Xmin];
-    U.upper = [Gmax;Tmax;Xmax];
 
 end
 

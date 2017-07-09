@@ -124,7 +124,7 @@ classdef GP_Surrogate < handle
         
         % append new sample(s)
         % WARNING: by default, assumes x is NORMALISED
-        % TODO? could use a Map for storage+search, but would need to hash coordinate vectors
+        % TODO (maybe one day): could store in R-tree for better efficiency
         %
         % We check if the point already exists in order to avoid calling the objective 
         % function, in the case where an initial sample is provided manually.
@@ -300,6 +300,23 @@ classdef GP_Surrogate < handle
             assert( inrange(self.GP.hyp.lik,self.LIK_BND), 'Likelihood hyperparameter outside expected range (cf property LIK_BND).' );
             assert( inrange(self.GP.hyp.cov(1),self.COV_BND), 'First covariance hyperparameter outside expected range (cf property COV_BND).' );
         
+        end
+        
+        % evaluate input coordinates using GP
+        %
+        % NOTE: expects NORMALISED coordinates
+        %
+        function [score,best]=gp_eval(self,coord,varsigma)
+            
+            if nargin < 2, varsigma = self.get_varsigma(); end
+            
+            [m,s] = self.gp_call( coord ); % normalised coordinates
+            ucb   = m + varsigma*s;
+            [u,k] = max(ucb);
+            
+            score = [ m, s, ucb ];
+            best  = [ m(k), s(k), u ];
+            
         end
         
         % WARNING: assumes query points are NORMALISED
