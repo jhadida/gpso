@@ -121,6 +121,7 @@ classdef GPSO < handle
         %   split at least once. This becomes rapidly impractical as D increases, so you might want
         %   to select the sampling method instead if D is large.
         %
+        % KEY/VALUE OPTIONS:
         %
         % InitSample: default L1-ball vertices
         %   Initial set of points to use for initialisation.
@@ -191,7 +192,7 @@ classdef GPSO < handle
         %
         % NOTE: the domain is not input here (extracted from the surrogate instead).
         % You DO need to provide the same objective function though, and the same exploration
-        % options set during the original run, to be consistent.
+        % options set during the original run, for consistency.
         %
         % JH
         

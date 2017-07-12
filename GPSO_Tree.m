@@ -145,11 +145,11 @@ classdef GPSO_Tree < handle
             child  = recursive_split( parent );
             
             % evaluate each new leaf
-            nc = numel(child);
+            nc = 3; % == numel(child)
             varsigma = srgt.get_varsigma();
-            for c = 1:nc
-                [~,child(c).best] = srgt.gp_eval( xfun(child(c)), varsigma );
-            end
+            [~,child(1).best] = srgt.gp_eval( xfun(child(1)), varsigma );
+            [~,child(2).best] = srgt.gp_eval( xfun(child(2)), varsigma );
+            [~,child(3).best] = srgt.gp_eval( xfun(child(3)), varsigma );
             
             % insert children into surrogate
             sid = srgt.append( vertcat(child.coord), vertcat(child.best), true );
@@ -164,7 +164,7 @@ classdef GPSO_Tree < handle
             % parent is no longer a leaf
             self.level(h).leaf(k) = false;
             
-            % update leaf/split counts
+            % update split+leaf counts
             self.Ns = self.Ns+1;
             self.Nl = self.Nl+nc-1;
             
@@ -287,12 +287,12 @@ end
 % 
 %     node.lower                 node.upper
 % Lvl      \                         /
-% h:        =-----------x-----------=
+% h:        =---------node----------=
 % 
 %
-% h+1:      =---g---=---x---=---d---=
+% h+1:      =---L---=---M---=---R---=
 %          /        |       |        \
-%        Tmin     Gmax     Dmin     Tmax
+%        Pmin     Lmax     Rmin     Pmax
 %
 function children = recursive_split(node,count)
 
