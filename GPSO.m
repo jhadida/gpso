@@ -102,7 +102,7 @@ classdef GPSO < handle
         %   The optimisation MAXIMISES this function.
         %
         % domain:
-        %   Ndim x 2 matrix specifying the boundaries of the hypercube.
+        %   Ndim x 2 matrix specifying the boundaries of the cartesian domain.
         %
         % Neval:
         %   Maximum number of function evaluation.
