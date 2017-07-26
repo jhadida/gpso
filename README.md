@@ -5,12 +5,13 @@
 
 This is a new implementation (from scratch) of [IMGPO](http://lis.csail.mit.edu/code/imgpo.html) which brings several improvements:
 
- - Correct update of GP hyperparameters, and subsequent update of UCBs;
- - GP trained in normalised space, to honour isotropic covariance assumptions;
- - Decoupling of GP surrogate, partition tree and optimisation logic;
+ - Correct update of GP hyperparameters, and subsequent update of upper-confidence bounds;
+ - GP trained in normalised space, in accordance with the use of an isotropic covariance function;
+ - Decoupling of GP surrogate, partition function and optimisation logics;
  - Correct count of GP- and non-GP-based samples;
- - Object orientation and events for better clarity and interfacing;
- - Serialisation, configuration and numerous methods for analysis.
+ - Object orientation and events for improved clarity and interfacing;
+ - Serialisation allowing the optimisation to be resumed at any stage;
+ - Detailed configuration, and additional methods for post-analysis.
 
 ## Installation
 
