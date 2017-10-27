@@ -7,6 +7,10 @@ function gpml_stop()
 %
 % JH
 
+    if isempty(which('gp'))
+        return;
+    end
+
     dirs = gpml_path();
     rmpath(dirs{:});
 

@@ -7,7 +7,9 @@ function gpml_start()
 %
 % JH
 
-    dirs = gpml_path();
-    addpath(dirs{:});
+    if isempty(which('gp'))
+        dirs = gpml_path();
+        addpath(dirs{:});
+    end
 
 end
