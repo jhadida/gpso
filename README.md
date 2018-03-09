@@ -3,7 +3,11 @@
 
 # Gaussian-Process Surrogate Optimisation
 
-This is a new implementation (from scratch) of [IMGPO](http://lis.csail.mit.edu/code/imgpo.html) which brings several improvements:
+> **NOTICE:**
+> A new version of GPSO is being written, and this version will not be updated.
+> A link to the new version will be posted here within a few months, but if you want to contribute, please contact me directly.
+
+This implementation is adapted from [IMGPO](http://lis.csail.mit.edu/code/imgpo.html) and brings several improvements:
 
  - Correct update of GP hyperparameters, and subsequent update of upper-confidence bounds;
  - GP trained in normalised space, in accordance with the use of an isotropic covariance function;
@@ -13,37 +17,43 @@ This is a new implementation (from scratch) of [IMGPO](http://lis.csail.mit.edu/
  - Serialisation allowing the optimisation to be resumed at any stage;
  - Detailed configuration, and additional methods for post-analysis.
 
+<img src="https://i.imgur.com/ATJZh57.gif" alt="Drawing" style="width: 50%; display: block; margin: 0 auto" />
+
 ## Installation
 
-You will need [Deck](https://github.com/sheljohn/deck) to use this toolbox.
-If it is not already installed, navigate to the folder where you want to put it (eg `~/Documents/MATLAB`), and type:
-```
-git clone https://github.com/sheljohn/deck.git
-```
-This will create a folder `deck/`.
-Add this folder to your path, and type `dk_startup` from the Matlab console.
-If you need to use this toolbox frequently, add these last commands to your [`startup.m`](https://uk.mathworks.com/help/matlab/ref/startup.html).
+### Requirements
 
-You will also need to be able to compile Mex files; make sure Matlab is set up properly (if you are on OSX, this involves installing the Command-Line Tools and Xcode, you might also want to use Homebrew to install `gcc` and/or up-to-date versions of `clang`). For a quick verification you can type `mex -setup` from the console.
+You will need to install [Deck](https://github.com/jhadida/deck); follow the instructions, and make sure it is on your Matlab path (e.g. call `dk.forward('All good')` to check).
 
-Once you have Deck installed, and that Mex is setup up properly, install GPSO in your folder of choice with:
+You will also need to be able to compile Mex files with Matlab; type `mex -setup` from the console to make sure you're all set. If that doesn't work:
+ - On **Linux**: just make sure you have `g++` and `gfortran` installed.
+ - On **OSX**: this might be more complicated. The simplest is to install [Homebrew](https://brew.sh/), and then `brew install gcc`. If the compiling fails saying something about Xcode, then you will probably need to install the Command-Line Tools and Xcode, both of which can be found [here](https://developer.apple.com/download/more/) (if they are too big to download, check [this](https://apple.stackexchange.com/questions/252911/download-older-version-of-xcode) out).
+
+### Install and compile
+
+From the Matlab console:
 ```
-git clone https://github.com/sheljohn/gpso.git
+folder = fullfile( userpath(), 'gpso' ); % or wherever you want to download it
+setenv( 'GPSO_FOLDER', folder ); % so we can use it in the shell
+!git clone https://github.com/sheljohn/gpso.git "$GPSO_FOLDER"
+addpath(folder);
+gpml_start(); gpml_compile(); % compile GPML
+gpso_example.peaks(); % opens a figure with a demo
 ```
-This will create a folder `gpso/`. 
-Add this folder to your path, and type `gpml_compile` from the Matlab console.
+
+If the compilation step fails, even though you have all the requirements, please [open an issue](https://github.com/jhadida/gpso/issues).
 
 ## Usage
 
 ### Running optimisation
 
-Your objective function should be defined as a function handle accepting a single row-vector of candidate parameters, and returning a scalar score to be **maximised**. For example, a 5-dimensional objective function should accept 1x5 vectors in input. 
+Your objective function should be defined as a function accepting a single row-vector of parameters, and returning a scalar score to be **maximised**. For example, a 5-dimensional objective function should accept 1x5 vectors in input. 
 
 Note that this algorithm is not suitable for combinatorial problems, or for problems with categorical inputs or outputs.
 It also assumes that the search space is a cartesian domain, where a closed interval of parameter values is considered in each dimension.
 The domain should be specified as an `Nd x 2` matrix where columns indicate respectively the lower and upper bounds in each dimension.
 
-A "budget" of computation should be allocated for the optimisation. This budget is specified as the number of times the objective function can be evaluated (denoted `Neval`), the idea being that evaluations of the objective function dominate other operations (in particular the optimisation of GP hyperparameters at each iteration). Note that ths is _not_ a hard limit; the final number of evaluations may exceed the budget slightly, in order to complete the last iteration.
+A "budget" of computation should be allocated for the optimisation. This budget is specified as the number of times the objective function can be evaluated (denoted `Neval`), the idea being that evaluations of the objective function dominate other operations in terms of runtime (in particular the optimisation of GP hyperparameters at each iteration, which can take a few seconds). Note that ths is _not_ a hard limit; the final number of evaluations may exceed the budget slightly, in order to complete the last iteration.
 
 Here is a simple example with a 2-dimensional objective function:
 ```
@@ -118,11 +128,11 @@ In addition, the following options can be set using the method `.configure()` pr
 
 ### Extras
 
-Using events, serialising, exporting the tree
+Using events, serialising, exporting the partition tree. Will be documented shortly.
 
-## Examples
+## Bugs
 
-Can be accessed through `gpso_example.*`
+Please report anything fishy by creating a [new issue](https://github.com/jhadida/gpso/issues). 
 
 ## License
 
