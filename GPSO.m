@@ -123,12 +123,12 @@ classdef GPSO < handle
         %
         % KEY/VALUE OPTIONS:
         %
-        % InitSample: default L1-ball vertices
+        % InitSample:  by default, two vertices per dimension, equally spaced from the centre (diamond-shape).
         %   Initial set of points to use for initialisation.
         %   Input can be an array of coordinates, in which case points are evaluated before optimisation.
         %   Or a structure with fields {coord,score}, in which case they are used directly by the surrogate.
         %
-        % UpdateCycle: default 1
+        % UpdateCycle: by default, update at each iteration.
         %   Update constant for GP hyperparameters.
         %   See step_update for currently selected method.
         %

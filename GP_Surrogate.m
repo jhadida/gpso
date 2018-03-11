@@ -124,7 +124,7 @@ classdef GP_Surrogate < handle
         
         % append new sample(s)
         % WARNING: by default, assumes x is NORMALISED
-        % TODO (maybe one day): could store in R-tree for improved efficiency
+        % TODO (maybe one day): could store in R-tree for improved performance
         %
         % We check if the point already exists in order to avoid calling the objective 
         % function, in the case where an initial sample is provided manually.

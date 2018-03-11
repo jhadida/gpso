@@ -27,14 +27,14 @@ You will need to install [Deck](https://github.com/jhadida/deck); follow the ins
 
 You will also need to be able to compile Mex files with Matlab; type `mex -setup` from the console to make sure you're all set. If that doesn't work:
  - On **Linux**: just make sure you have `g++` and `gfortran` installed.
- - On **OSX**: this might be more complicated. The simplest is to install [Homebrew](https://brew.sh/), and then `brew install gcc`. If the compiling fails saying something about Xcode, then you will probably need to install the Command-Line Tools and Xcode, both of which can be found [here](https://developer.apple.com/download/more/) (if they are too big to download, check [this](https://apple.stackexchange.com/questions/252911/download-older-version-of-xcode) out).
+ - On **OSX**: this might be more complicated. The easiest is to install [Homebrew](https://brew.sh/), and then `brew install gcc`. If the compiling fails saying something about Xcode, then you will probably need to install the Command-Line Tools and Xcode, both of which can be found [here](https://developer.apple.com/download/more/) (if they are too big to download, check [this](https://apple.stackexchange.com/questions/252911/download-older-version-of-xcode) out).
 
 ### Install and compile
 
 From the Matlab console:
 ```
 folder = fullfile( userpath(), 'gpso' ); % or wherever you want to download it
-setenv( 'GPSO_FOLDER', folder ); % so we can use it in the shell
+setenv( 'GPSO_FOLDER', folder ); % to be used in system calls
 !git clone https://github.com/sheljohn/gpso.git "$GPSO_FOLDER"
 addpath(folder);
 gpml_start(); gpml_compile(); % compile GPML
@@ -50,10 +50,10 @@ If the compilation step fails, even though you have all the requirements, please
 Your objective function should be defined as a function accepting a single row-vector of parameters, and returning a scalar score to be **maximised**. For example, a 5-dimensional objective function should accept 1x5 vectors in input. 
 
 Note that this algorithm is not suitable for combinatorial problems, or for problems with categorical inputs or outputs.
-It also assumes that the search space is a cartesian domain, where a closed interval of parameter values is considered in each dimension.
+It also assumes that the search space is a cartesian domain, where an open interval of parameter-values (with finite bounds) is considered in each dimension.
 The domain should be specified as an `Nd x 2` matrix where columns indicate respectively the lower and upper bounds in each dimension.
 
-A "budget" of computation should be allocated for the optimisation. This budget is specified as the number of times the objective function can be evaluated (denoted `Neval`), the idea being that evaluations of the objective function dominate other operations in terms of runtime (in particular the optimisation of GP hyperparameters at each iteration, which can take a few seconds). Note that ths is _not_ a hard limit; the final number of evaluations may exceed the budget slightly, in order to complete the last iteration.
+A "budget" of computation should be allocated for the optimisation. This budget is specified as the number of times the objective function can be evaluated (denoted `Neval`), the idea being that evaluations of the objective function dominate other operations in terms of runtime (in particular, the optimisation of GP hyperparameters at each iteration, which can take a few seconds). Note that this is _not_ a hard limit; the final number of evaluations may exceed the budget slightly, in order to complete the last iteration.
 
 Here is a simple example with a 2-dimensional objective function:
 ```
@@ -96,12 +96,12 @@ There are several options that can be set for the optimisation (notably regardin
     %
     % KEY/VALUE OPTIONS:
     %
-    % InitSample: default L1-ball vertices
+    % InitSample: by default, two vertices per dimension, equally spaced from the centre (diamond-shape).
     %   Initial set of points to use for initialisation.
     %   Input can be an array of coordinates, in which case points are evaluated before optimisation.
     %   Or a structure with fields {coord,score}, in which case they are used directly by the surrogate.
     %
-    % UpdateCycle: default 1
+    % UpdateCycle: by default, update at each iteration.
     %   Update GP hyperparameters every n cycles.
     %   See step_update for currently selected method.
     %
