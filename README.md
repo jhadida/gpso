@@ -35,7 +35,7 @@ From the Matlab console:
 ```
 folder = fullfile( userpath(), 'gpso' ); % or wherever you want to download it
 setenv( 'GPSO_FOLDER', folder ); % to be used in system calls
-!git clone https://github.com/sheljohn/gpso.git "$GPSO_FOLDER"
+!git clone https://github.com/jhadida/gpso.git "$GPSO_FOLDER"
 addpath(folder);
 gpml_start(); gpml_compile(); % compile GPML
 gpso_example.peaks(); % opens a figure with a demo
