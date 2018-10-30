@@ -327,7 +327,7 @@ classdef GP_Surrogate < handle
                 @infExact, self.GP.meanfunc, self.GP.covfunc, self.GP.likfunc, xe, fe );
             
             % don't allow sigma to become too small or too big
-            self.GP.hyp.lik = dk.math.clamp( self.GP.hyp.lik, self.LIK_BND );
+            self.GP.hyp.lik = dk.num.clamp( self.GP.hyp.lik, self.LIK_BND );
             
             % re-evaluate all gp-based samples
             if self.Ng > 0

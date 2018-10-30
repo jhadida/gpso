@@ -273,7 +273,7 @@ classdef GPSO < handle
 
                 self.info('\tHyperparameter update (n=%d).',upn);
                 self.srgt.gp_update();
-                upn = dk.math.nextint( Nsplit/upc );
+                upn = dk.num.nextint( Nsplit/upc );
                 self.notify( 'PostUpdate' );
 
             end
@@ -285,7 +285,7 @@ classdef GPSO < handle
 
                 self.info('\tHyperparameter update (n=%d).',upn);
                 self.srgt.gp_update();
-                upn = dk.math.nextint( (sqrt(1+8*Nsplit/upc)-1)/2 );
+                upn = dk.num.nextint( (sqrt(1+8*Nsplit/upc)-1)/2 );
                 self.notify( 'PostUpdate' );
 
             end
