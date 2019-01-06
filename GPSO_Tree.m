@@ -281,12 +281,12 @@ classdef GPSO_Tree < handle
         
         function T = export_dkTree(self)
         %
-        % Export as dk.obj.Tree instance.
+        % Export as dk.ds.Tree instance.
             
             C = self.export_compact();
             C.index = ones(1,C.n);
             
-            T = dk.obj.Tree( struct('sid', C.sample(1), 'order', C.order(1)) );
+            T = dk.ds.Tree( struct('sid', C.sample(1), 'order', C.order(1)) );
             for d = 2:C.d
                 
                 k = find(C.depth == d);
