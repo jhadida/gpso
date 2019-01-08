@@ -74,8 +74,8 @@ function [out,dist,obj] = mixture( Ndim, Npeak, Neval, dist )
     % NOTE:
     % These metrics are not exact; it's not trivial to find the global maximum of a mixture, 
     % so you might get negative regrets here.
-    dk.println( '\n\nSolution found is %g units away from global optimum (relative regret: %.2f %%).', Dbest, 100*Rbest );
-    dk.println( 'Closest local optimum is at %g units (relative regret: %.2f %%).', Dclose, 100*Rclose );
+    dk.disp( '\n\nSolution found is %g units away from global optimum (relative regret: %.2f %%).', Dbest, 100*Rbest );
+    dk.disp( 'Closest local optimum is at %g units (relative regret: %.2f %%).', Dclose, 100*Rclose );
 
     figure; plotmatrix(out.samp.x);
     dk.ui.title('Scatter of evaluated samples across %d dimensions',Ndim);
