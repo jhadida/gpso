@@ -27,12 +27,12 @@ function gpml_compile( cpp_comp, fortran_comp, lbfgsb_ver )
     dk.fs.puts( fullfile(util,'lbfgsb/Makefile'), tpl.substitute(sub), true );
     
     % Compile solve_chol
-    dk.disp('Compiling solve_chol...');
+    dk.print('Compiling solve_chol...');
     cd(util);
     mex -O -lmwlapack solve_chol.c
     
     % Compile lbfgsb
-    dk.disp('Compiling lbfgsb...');
+    dk.print('Compiling lbfgsb...');
     cd lbfgsb
     system('make');
     cd(current);
